@@ -1,19 +1,15 @@
 {
-  "name": "kenneth-fire-3d-timeline",
+  "name": "kenneth-fire-3d-reconstruction",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
-  "description": "Continuous 3D timeline of the Kenneth Fire built from timestamped NASA FIRMS satellite detections.",
+  "description": "Google-Earth-style 3D historical reconstruction of the Kenneth Fire spread over terrain and structures.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@deck.gl/core": "^9.1.0",
-    "@deck.gl/layers": "^9.1.0",
-    "@deck.gl/mapbox": "^9.1.0",
-    "mapbox-gl": "^3.9.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

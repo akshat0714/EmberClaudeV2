@@ -1,27 +1,28 @@
 /**
  * Official Kenneth Fire incident facts (CAL FIRE / LAFD).
  *
- * These are fixed historical facts displayed verbatim. The app never invents
- * intermediate acreage figures or minute-by-minute perimeters — everything
- * animated on the map comes from timestamped NASA FIRMS satellite detections.
+ * These are fixed historical facts displayed verbatim. Spread-stage geometry
+ * shown on the map is a labelled reconstruction (see kennethReconstruction.ts)
+ * — the app never presents it as a surveyed perimeter, and the only acreage
+ * figure shown is the official final size.
  */
 export const KENNETH_FIRE = {
   name: 'Kenneth Fire',
-  startLabel: 'Jan 9, 2025, 3:34 PM PST',
+  startLabel: 'Jan 9, 2025, 3:34 PM PT',
   startIso: '2025-01-09T15:34:00-08:00',
-  containedLabel: 'Jan 12, 2025, 7:48 AM PST',
+  containedLabel: 'Jan 12, 2025, 7:48 AM PT',
   containedIso: '2025-01-12T07:48:00-08:00',
   finalAcres: 1052,
-  location: 'Victory Boulevard west of Gilmore Street, West Hills',
+  location: 'Victory Blvd west of Gilmore St, West Hills',
   lat: 34.185198,
-  lon: -118.66991,
+  lng: -118.66991,
 } as const;
 
-export const DISCLAIMER_SHORT =
-  'Continuous animation from timestamped satellite detections — not real-time emergency guidance.';
+export const APP_TITLE = 'Kenneth Fire';
+export const APP_SUBTITLE = '3D Historical Fire-Spread Reconstruction';
+export const APP_TAGLINE = 'Continuous reconstruction of spread over terrain and structures';
 
-export const DISCLAIMER_LONG =
-  'Historical visualization using satellite detections and official incident facts. Not emergency guidance.';
+export const MODE_LABEL = 'Reconstruction';
 
-/** The animated polygon is a smoothed hull around detections, not a mapped fire perimeter. */
-export const ENVELOPE_LABEL = 'Observed satellite detection envelope';
+export const DISCLAIMER =
+  'Historical reconstruction using official incident facts and reconstructed spread geometry. Not emergency guidance.';

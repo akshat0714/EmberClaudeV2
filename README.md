@@ -1,15 +1,15 @@
-# Kenneth Fire 3D Timeline
+# Kenneth Fire — 3D Historical Fire-Spread Reconstruction
 
-A local web app that replays the **Kenneth Fire** (West Hills / Calabasas, January 2025) as a
-continuous 3D timeline built from **real, timestamped NASA FIRMS satellite fire detections** —
-rendered with Mapbox GL (dark 3D terrain) and deck.gl (glowing detections, pulse pings, and a
-smoothed detection-envelope polygon).
+A judge-friendly, Google-Earth-style 3D demo that tells the Kenneth Fire story (West Hills /
+Calabasas, January 2025) as a **clean layered geographic reconstruction**: where the fire
+started, which hillsides it crossed interval by interval, where it met neighborhood edges, and
+what the final 1,052-acre footprint looks like — all over **Google photorealistic 3D terrain
+and buildings**.
 
-> **Continuous animation from timestamped satellite detections — not real-time emergency guidance.**
+> Historical reconstruction using official incident facts and reconstructed spread geometry.
+> **Not emergency guidance.**
 
-No backend. No live API calls. Everything runs from local files.
-
-![Stack](https://img.shields.io/badge/React%20%2B%20Vite%20%2B%20TypeScript-Mapbox%20GL%20%2B%20deck.gl-orange)
+No backend. The only network use is Google's map library + 3D tiles.
 
 ---
 
@@ -20,120 +20,123 @@ npm install
 npm run dev
 ```
 
-Then open the printed URL (usually `http://localhost:5173`).
+Open the printed URL (usually `http://localhost:5173`).
 
-Two things are required before the map appears — the app shows a clean instruction screen for
-each if missing:
+### Google Maps API key (required)
 
-### 1. Mapbox token
+The app shows a clean setup screen until a key is configured:
 
-Create a free access token at <https://account.mapbox.com/access-tokens/>, then create a `.env`
-file in the project root (see `.env.example`):
+1. In the [Google Cloud console](https://console.cloud.google.com/google/maps-apis), create an
+   API key. The project must have **billing enabled** (photorealistic 3D tiles require it; the
+   monthly free tier comfortably covers demo usage).
+2. Enable the **Maps JavaScript API** and the **Map Tiles API** for that project.
+3. Create `.env` in the project root (see `.env.example`):
 
-```bash
-VITE_MAPBOX_TOKEN=your_token_here
-```
+   ```bash
+   VITE_GOOGLE_MAPS_API_KEY=your_google_maps_key_here
+   ```
 
-Restart `npm run dev` after creating or editing `.env`.
+4. Restart `npm run dev` (Vite reads `.env` at startup).
 
-### 2. FIRMS detection data
-
-Download a **NASA FIRMS archive CSV** for **Jan 9–12, 2025** around the Kenneth Fire area
-(West Hills / Calabasas) and save it as:
-
-```
-public/data/kenneth_firms.csv
-```
-
-Steps:
-
-1. Open <https://firms.modaps.eosdis.nasa.gov/download/> (free NASA Earthdata login).
-2. Create an **archive download** request:
-   - **Area:** draw a box around West Hills / Calabasas — suggested bounds
-     `West -118.78, South 34.12, East -118.56, North 34.26`.
-   - **Dates:** `2025-01-09` → `2025-01-13` (FIRMS dates are UTC; including Jan 13 UTC covers
-     the evening of Jan 12 Pacific time).
-   - **Source:** VIIRS (S-NPP and/or NOAA-20 / NOAA-21), **CSV** format.
-3. Extract the archive and save the CSV to `public/data/kenneth_firms.csv`.
-
-Expected columns: `latitude, longitude, acq_date, acq_time, satellite, confidence, frp,
-bright_ti4`. MODIS exports (with `brightness` and numeric confidence) also work. If FIRMS gives
-you one CSV per sensor you can simply concatenate them — repeated header lines are ignored.
-The instruction screen also lets you drag-and-drop a CSV to preview it without restarting.
+If Google rejects the key at runtime, the app replaces the map with a clear diagnostic card
+instead of a black screen.
 
 ---
 
-## What you'll see
+## What a judge sees
 
-- **Dark 3D terrain** centered on the official ignition area (34.185198, −118.66991), with a
-  slow cinematic push-in.
-- **Fire detections** appearing at their real acquisition times: glowing orange/red orbs that
-  fade in with a pulse ring, sized by fire radiative power (FRP) and faded by detection
-  confidence, then slowly dimming to ember tones as burned-area history.
-- **Observed satellite detection envelope** — a translucent orange polygon with a glowing
-  outline that smoothly expands around the visible detections.
-- **Ignition marker** — “Reported start area” at Victory Boulevard west of Gilmore Street.
-- **Official facts panel** — final size **1,052 acres**, contained **Jan 12, 2025, 7:48 AM**,
-  start time, location, and a map label “CAL FIRE final size: 1,052 acres.”
-- **Timeline controls** — play/pause, scrubber (with a tick for every real overpass timestamp),
-  1x / 5x / 20x speeds, and the current timestamp in Pacific time + UTC. At 1x the full
-  timeline plays in about 90 seconds.
+1. **Fly-in** over photorealistic West Hills / Upper Las Virgenes Canyon — streets, ridgelines,
+   and neighborhoods are immediately recognizable (hybrid mode keeps place labels on).
+2. **Ignition marker** — "Reported start area" at Victory Blvd west of Gilmore St
+   (34.185198, −118.66991), with a bright yellow ignition zone.
+3. **Time-interval zone bands** draped on the terrain — each interval is its own
+   clearly-outlined, semi-transparent color band (yellow → orange → deep orange → red-orange →
+   burgundy), so progression reads like a layered map, not particles:
+   - 3:34 PM — Ignition
+   - 3:45 PM — Early spread
+   - 5:00 PM — Broader spread
+   - 5:30 PM — Major spread
+   - Evening — Final footprint (official 1,052 acres)
+4. **Moving active front** — a pulsing bright line sweeps continuously outward between stages,
+   filling the current interval's color behind it, so "current time" is always obvious.
+5. **Developed-edge bands** — pale bands light up where the footprint meets the West Hills
+   residential edge (from 3:45 PM) and the Hidden Hills north edge (from 5:30 PM), with a live
+   status list in the right panel.
+6. **Timeline** — play/pause, replay, scrubber with a labeled dot per stage (click to jump),
+   1x / 5x / 20x speeds, and a current-stage chip ("Stage 3 of 5 · Broader spread"). At 1x the
+   whole story plays in ~60 seconds.
+7. **Right panel** — current time, stage + ≈% of final footprint, official facts (final size,
+   start, containment, location), mode "Reconstruction", and a legend.
 
-## Accuracy & honesty rules
+## Honesty & accuracy
 
-This is a historical visualization, built to be honest about what satellites actually saw:
+This is a **communication tool, clearly labelled as a reconstruction**:
 
-- Every animated event comes from a **real FIRMS row**: `acq_date + acq_time` (UTC) parsed into
-  a timestamp, sorted, and replayed. Nothing is randomly generated.
-- **No intermediate acreage numbers are invented** — the only size shown is the official final
-  1,052 acres.
-- **No minute-by-minute perimeters are claimed.** The polygon is a smoothed convex hull around
-  detections, labelled an *“Observed satellite detection envelope”*, not a fire perimeter.
-- Interpolation is used **only for visual smoothness** between real timestamps (fade-in pulses,
-  ember dimming, and the envelope easing outward to newly appeared detections). Detection
-  positions are never moved.
-- Detections are filtered to within ~6 km of the ignition point so other January 2025 incidents
-  captured in the same FIRMS download (e.g. the Palisades Fire) don't contaminate the timeline.
-- Satellite times are display in Pacific time (the fire's local time) alongside UTC.
-
-> Historical visualization using satellite detections and official incident facts.
-> **Not emergency guidance.**
+- **Official facts are verbatim**: start Jan 9, 2025, 3:34 PM PT; contained Jan 12, 2025,
+  7:48 AM PT; final size 1,052 acres; location Victory Blvd west of Gilmore St.
+- **Stage polygons are reconstructed**, not surveyed perimeters. They follow the real
+  geography: ignition at the open-space trailhead, wind-driven growth west/southwest across
+  Upper Las Virgenes Canyon toward Lasky Mesa and Las Virgenes Canyon, with the eastern (West
+  Hills) and southern (Hidden Hills) edges nearly fixed across later stages — the
+  structure-defense story.
+- The **final ring's area is tuned to the official 1,052 acres** (a generator script verified
+  stage areas and strict ring nesting). Intermediate stage acreages are never displayed —
+  only stage names, times, and an explicitly "(reconstructed)" percent readout.
+- The front-line morphing between stages is visual interpolation only.
+- The disclaimer is always visible in the info panel.
 
 ## Tech
 
 | Piece | Choice |
 | --- | --- |
-| App | React 18 + Vite 5 + TypeScript (strict) |
-| 3D map | Mapbox GL JS v3 — `dark-v11`, terrain DEM, hillshade, fog |
-| Fire layers | deck.gl v9 (`MapboxOverlay` interleaved): scatterplot glow/core/ping, polygon envelope, text labels |
-| Data | Local CSV in `public/data/`, parsed in the browser |
-| Animation | `requestAnimationFrame` clock over the real detection time range |
+| App | React 18 + Vite 5 + TypeScript (strict) — no other npm runtime deps |
+| 3D map | Google Maps JavaScript API (`v=beta`, `maps3d` library): `Map3DElement` photorealistic tiles, `Polygon3DElement` zone bands draped with `CLAMP_TO_GROUND`, `Polyline3DElement` front line, `Marker3DElement` ignition pin |
+| Camera | Cinematic low-angle fly-in (`flyCameraTo`), stable during playback, Recenter button |
+| Animation | `requestAnimationFrame` clock over the real stage times; ring resample + align + lerp for the moving front |
 
 ```
 src/
-  App.tsx                    app states, fallback screens, rAF animation clock
-  components/MapView.tsx     Mapbox + deck.gl layers (detections, envelope, markers)
-  components/InfoPanel.tsx   right-side stats + official facts + legend
-  components/TimelineControls.tsx  play/pause, scrubber, speeds, timestamp
-  data/kennethFacts.ts       official incident facts + disclaimer strings
-  lib/loadFirmsCsv.ts        FIRMS CSV fetch/parse/filter
-  lib/timeUtils.ts           timestamp parsing, formatting, easing, clock math
-  lib/geometry.ts            convex hull, buffered detection envelope, densify
+  App.tsx                        app state, rAF clock, key screen
+  components/FireScene.tsx       Google 3D map + zone/front/structure layers
+  components/TimelineControls.tsx play/pause/replay, stage scrubber, speeds
+  components/InfoPanel.tsx       time, stage, facts, developed edges, legend
+  data/kennethFacts.ts           official incident facts + disclaimer
+  data/kennethReconstruction.ts  stage rings, structure bands, camera framing
+  lib/interpolatePolygon.ts      ring resample/align/lerp + area helpers
+  lib/loadGoogleMaps.ts          runtime loader for the maps3d library
+  lib/timeUtils.ts               PT/UTC formatting, easing, binary search
+  types/maps3d.d.ts              minimal ambient types for the maps3d library
 ```
+
+Tuning the look: camera framing lives in `SCENE_CAMERA` and all stage geometry/colors in
+`src/data/kennethReconstruction.ts`.
+
+### Why not CesiumJS?
+
+CesiumJS + Google 3D Tiles was the fallback option; the Maps JS `maps3d` route was chosen
+because it needs zero heavy dependencies, ships Google's own camera/clamping behavior, and
+keeps the bundle at ~164 KB. If you ever need Cesium instead, the data layer
+(`kennethReconstruction.ts`, `interpolatePolygon.ts`) is renderer-agnostic.
 
 ## Build
 
 ```bash
 npm run build    # type-checks and produces dist/
-npm run preview  # serve the production build locally
+npm run preview  # serve the production build
 ```
 
 ## Troubleshooting
 
-- **“Mapbox token required” screen** — create `.env` with `VITE_MAPBOX_TOKEN=...` and restart
-  the dev server (Vite only reads `.env` at startup).
-- **“Fire detection data needed” screen** — the CSV isn't at
-  `public/data/kenneth_firms.csv`, or no rows fall within 6 km of the ignition point (check
-  your FIRMS area/date selection; it must include West Hills, Jan 9–13, 2025 UTC).
-- **Blank/black map with panels visible** — the token exists but was rejected; the app shows a
-  token-rejected notice. Verify the token is a public (`pk.`) token.
+- **"Google Maps API key required" screen** — create `.env` with
+  `VITE_GOOGLE_MAPS_API_KEY=...` and restart the dev server.
+- **"3D map unavailable" card** — the key was rejected: check that billing is enabled and that
+  *Maps JavaScript API* + *Map Tiles API* are both enabled; remove referrer restrictions for
+  `localhost` testing.
+- **Tiles load slowly on first run** — photorealistic tiles stream progressively; give the
+  fly-in a few seconds on a fresh cache.
+
+---
+
+*Earlier versions of this repo animated raw NASA FIRMS satellite detections with Mapbox +
+deck.gl. That approach was replaced by this reconstruction because judges found discrete
+detection points hard to read; the git history preserves it.*

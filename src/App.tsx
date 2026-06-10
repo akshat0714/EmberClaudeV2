@@ -1,25 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import InfoPanel from './components/InfoPanel';
-import MapView from './components/MapView';
-import TimelineControls from './components/TimelineControls';
-import { DISCLAIMER_LONG, DISCLAIMER_SHORT, KENNETH_FIRE } from './data/kennethFacts';
+import FireScene from './components/FireScene';
+import InfoPanel, { type StructureStatus } from './components/InfoPanel';
+import TimelineControls, { type TimelineStage } from './components/TimelineControls';
 import {
-  FILTER_RADIUS_KM,
-  loadFirmsFromUrl,
-  parseFirmsCsv,
-  type FireDetection,
-  type FirmsLoadResult,
-} from './lib/loadFirmsCsv';
-import { clamp, countAtOrBefore } from './lib/timeUtils';
+  APP_SUBTITLE,
+  APP_TAGLINE,
+  APP_TITLE,
+  DISCLAIMER,
+} from './data/kennethFacts';
+import { SPREAD_STAGES, STRUCTURE_EDGES } from './data/kennethReconstruction';
+import {
+  interpolateRings,
+  prepareTransition,
+  ringAreaAcres,
+} from './lib/interpolatePolygon';
+import { clamp, countAtOrBefore, smoothstep01 } from './lib/timeUtils';
 
-/** At 1x the full detection timeline plays in about this long. */
-const DEMO_DURATION_MS = 90_000;
+/** At 1x the full reconstruction timeline plays in about this long. */
+const DEMO_DURATION_MS = 60_000;
 
 /**
- * requestAnimationFrame clock over the real detection time range.
- * Every frame advances `time` (fire time, UTC ms) by the elapsed wall-clock
- * delta scaled so the whole timeline lasts ~90 s at 1x. Pauses at the end;
- * pressing play again restarts from the first detection.
+ * requestAnimationFrame clock over the reconstruction time range. Pauses at
+ * the end; Play at the end (or Replay) restarts from ignition.
  */
 function useAnimationClock(startTime: number, endTime: number) {
   const [time, setTime] = useState(startTime);
@@ -59,6 +61,14 @@ function useAnimationClock(startTime: number, endTime: number) {
     setPlaying(s.playing);
   };
 
+  const replay = () => {
+    const s = stateRef.current;
+    s.time = startTime;
+    s.playing = true;
+    setTime(startTime);
+    setPlaying(true);
+  };
+
   const seek = (t: number) => {
     const v = clamp(t, startTime, endTime);
     stateRef.current.time = v;
@@ -70,89 +80,76 @@ function useAnimationClock(startTime: number, endTime: number) {
     setSpeed(multiplier);
   };
 
-  return { time, playing, speed, toggle, seek, changeSpeed };
+  return { time, playing, speed, toggle, replay, seek, changeSpeed };
 }
-
-type DataState =
-  | { status: 'loading' }
-  | { status: 'missing'; note?: string }
-  | { status: 'ready'; result: FirmsLoadResult };
 
 export default function App() {
-  const token = (import.meta.env.VITE_MAPBOX_TOKEN ?? '').trim();
-  const tokenValid = token !== '' && token !== 'your_token_here';
+  const apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '').trim();
+  const keyValid = apiKey !== '' && apiKey !== 'your_google_maps_key_here';
 
-  const [dataState, setDataState] = useState<DataState>({ status: 'loading' });
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const result = await loadFirmsFromUrl(`${import.meta.env.BASE_URL}data/kenneth_firms.csv`);
-        if (cancelled) return;
-        if (!result) {
-          setDataState({ status: 'missing' });
-        } else if (result.detections.length === 0) {
-          setDataState({
-            status: 'missing',
-            note: `Found ${result.totalRows} rows in public/data/kenneth_firms.csv, but none within ${FILTER_RADIUS_KM} km of the Kenneth Fire ignition point. Check the area and date range of your FIRMS download.`,
-          });
-        } else {
-          setDataState({ status: 'ready', result });
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setDataState({
-            status: 'missing',
-            note: error instanceof Error ? error.message : 'The CSV file could not be parsed.',
-          });
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!tokenValid) return <TokenScreen />;
-  if (dataState.status === 'loading') return <LoadingScreen />;
-  if (dataState.status === 'missing') {
-    return (
-      <DataScreen
-        note={dataState.note}
-        onLoaded={(result) => setDataState({ status: 'ready', result })}
-      />
-    );
-  }
-  return <TimelineApp token={token} detections={dataState.result.detections} />;
+  if (!keyValid) return <KeyScreen />;
+  return <ReconstructionApp apiKey={apiKey} />;
 }
 
-function TimelineApp({ token, detections }: { token: string; detections: FireDetection[] }) {
-  const timestamps = useMemo(() => detections.map((d) => d.timestamp), [detections]);
-  const startTime = timestamps[0];
-  const endTime = timestamps[timestamps.length - 1];
+function ReconstructionApp({ apiKey }: { apiKey: string }) {
+  const stageTimes = useMemo(() => SPREAD_STAGES.map((s) => Date.parse(s.timeIso)), []);
+  const startTime = stageTimes[0];
+  const endTime = stageTimes[stageTimes.length - 1];
   const clock = useAnimationClock(startTime, endTime);
 
-  const overpassTimes = useMemo(() => Array.from(new Set(timestamps)), [timestamps]);
-  const visibleCount = countAtOrBefore(timestamps, clock.time);
-  const latest = visibleCount > 0 ? detections[visibleCount - 1] : null;
+  const timelineStages = useMemo<TimelineStage[]>(
+    () =>
+      SPREAD_STAGES.map((s, i) => ({
+        name: s.name,
+        timeLabel: s.timeLabel,
+        timeMs: stageTimes[i],
+      })),
+    [stageTimes],
+  );
+
+  // Same interpolation as the scene, used to derive the "% of final
+  // footprint" readout (coarser ring is plenty for an area estimate).
+  const transitions = useMemo(
+    () =>
+      SPREAD_STAGES.slice(0, -1).map((stage, j) =>
+        prepareTransition(stage.ring, SPREAD_STAGES[j + 1].ring, 64),
+      ),
+    [],
+  );
+  const finalAcres = useMemo(() => ringAreaAcres(SPREAD_STAGES[SPREAD_STAGES.length - 1].ring), []);
+
+  const stageIndex = Math.max(0, countAtOrBefore(stageTimes, clock.time) - 1);
+  const interval = Math.min(stageIndex, SPREAD_STAGES.length - 2);
+  const span = Math.max(stageTimes[interval + 1] - stageTimes[interval], 1);
+  const p =
+    clock.time >= endTime
+      ? 1
+      : clamp(smoothstep01((clock.time - stageTimes[interval]) / span), 0, 1);
+  const currentAcres = ringAreaAcres(interpolateRings(transitions[interval], p));
+  const percentOfFinal = clamp(Math.round((currentAcres / finalAcres) * 100), 1, 100);
+
+  const structures: StructureStatus[] = STRUCTURE_EDGES.map((edge) => ({
+    name: edge.name,
+    active: stageIndex >= edge.activeFromStage,
+    sinceLabel: SPREAD_STAGES[edge.activeFromStage].timeLabel,
+  }));
 
   return (
     <div className="app-root">
-      <MapView token={token} detections={detections} currentTime={clock.time} />
-      <div className="vignette" aria-hidden="true" />
+      <FireScene apiKey={apiKey} time={clock.time} />
+      <div className="edge-fade" aria-hidden="true" />
 
       <header className="title-block">
-        <h1>{KENNETH_FIRE.name}</h1>
-        <p className="subtitle">3D satellite-detection timeline</p>
-        <p className="title-disclaimer">{DISCLAIMER_SHORT}</p>
+        <h1>{APP_TITLE}</h1>
+        <p className="subtitle">{APP_SUBTITLE}</p>
+        <p className="tagline">{APP_TAGLINE}</p>
       </header>
 
       <InfoPanel
         time={clock.time}
-        visibleCount={visibleCount}
-        totalCount={detections.length}
-        latestSatellite={latest?.satelliteLabel ?? null}
+        stageIndex={stageIndex}
+        percentOfFinal={percentOfFinal}
+        structures={structures}
       />
 
       <TimelineControls
@@ -161,8 +158,10 @@ function TimelineApp({ token, detections }: { token: string; detections: FireDet
         time={clock.time}
         startTime={startTime}
         endTime={endTime}
-        overpassTimes={overpassTimes}
+        stages={timelineStages}
+        currentStageIndex={stageIndex}
         onToggle={clock.toggle}
+        onReplay={clock.replay}
         onSeek={clock.seek}
         onSpeedChange={clock.changeSpeed}
       />
@@ -174,125 +173,44 @@ function FallbackShell({ children }: { children: ReactNode }) {
   return (
     <div className="screen">
       <div className="screen-card glass">
-        <p className="screen-kicker">Kenneth Fire · 3D Timeline</p>
+        <p className="screen-kicker">
+          {APP_TITLE} · {APP_SUBTITLE}
+        </p>
         {children}
-        <p className="screen-footnote">{DISCLAIMER_LONG}</p>
+        <p className="screen-footnote">{DISCLAIMER}</p>
       </div>
     </div>
   );
 }
 
-function TokenScreen() {
+function KeyScreen() {
   return (
     <FallbackShell>
-      <h1>Mapbox token required</h1>
+      <h1>Google Maps API key required</h1>
       <p>
-        This visualization renders a 3D Mapbox map and needs an access token. Create a free token
-        at{' '}
-        <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer">
-          account.mapbox.com
-        </a>
-        , then create a <code>.env</code> file in the project root:
-      </p>
-      <pre>{'VITE_MAPBOX_TOKEN=your_token_here'}</pre>
-      <p>
-        (See <code>.env.example</code>.) Restart <code>npm run dev</code> after saving.
-      </p>
-    </FallbackShell>
-  );
-}
-
-function LoadingScreen() {
-  return (
-    <FallbackShell>
-      <div className="spinner" aria-hidden="true" />
-      <h1>Loading detection data…</h1>
-    </FallbackShell>
-  );
-}
-
-function DataScreen({
-  note,
-  onLoaded,
-}: {
-  note?: string;
-  onLoaded: (result: FirmsLoadResult) => void;
-}) {
-  const [error, setError] = useState<string | null>(note ?? null);
-  const [dragging, setDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  const handleFiles = async (files: FileList | null) => {
-    const file = files?.[0];
-    if (!file) return;
-    try {
-      const result = parseFirmsCsv(await file.text());
-      if (result.detections.length === 0) {
-        setError(
-          `Parsed ${result.totalRows} rows, but none within ${FILTER_RADIUS_KM} km of the Kenneth Fire ignition point — check the area and date range of the download.`,
-        );
-        return;
-      }
-      onLoaded(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'That file could not be parsed as a FIRMS CSV.');
-    }
-  };
-
-  return (
-    <FallbackShell>
-      <h1>Fire detection data needed</h1>
-      <p>
-        Download NASA FIRMS archive CSV for <strong>Jan 9–12, 2025</strong> around West Hills /
-        Calabasas and place it at <code>public/data/kenneth_firms.csv</code>.
+        This reconstruction renders Google photorealistic 3D terrain and buildings, which needs an
+        API key:
       </p>
       <ol>
         <li>
-          Open the{' '}
-          <a href="https://firms.modaps.eosdis.nasa.gov/download/" target="_blank" rel="noreferrer">
-            NASA FIRMS archive download
-          </a>{' '}
-          page and request VIIRS data as CSV for Jan 9–13, 2025 (UTC) over the West Hills /
-          Calabasas area.
+          In the{' '}
+          <a href="https://console.cloud.google.com/google/maps-apis" target="_blank" rel="noreferrer">
+            Google Cloud console
+          </a>
+          , create an API key (billing must be enabled on the project).
         </li>
         <li>
-          Save the extracted file as <code>public/data/kenneth_firms.csv</code>.
+          Enable the <strong>Maps JavaScript API</strong> and the <strong>Map Tiles API</strong>{' '}
+          for that project.
         </li>
-        <li>Reload this page.</li>
+        <li>
+          Create a <code>.env</code> file in the project root (see <code>.env.example</code>):
+        </li>
       </ol>
-      <div
-        className={dragging ? 'dropzone dragging' : 'dropzone'}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          void handleFiles(e.dataTransfer.files);
-        }}
-        onClick={() => inputRef.current?.click()}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click();
-        }}
-      >
-        …or drop / choose the FIRMS CSV here to view it right away
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".csv,text/csv"
-          hidden
-          onChange={(e) => void handleFiles(e.target.files)}
-        />
-      </div>
-      <p className="screen-hint">
-        Files opened this way aren’t saved — for a permanent setup, place the CSV at{' '}
-        <code>public/data/kenneth_firms.csv</code>.
+      <pre>{'VITE_GOOGLE_MAPS_API_KEY=your_google_maps_key_here'}</pre>
+      <p>
+        Restart <code>npm run dev</code> after saving.
       </p>
-      {error && <p className="screen-error">{error}</p>}
     </FallbackShell>
   );
 }
