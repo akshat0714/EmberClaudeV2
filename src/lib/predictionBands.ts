@@ -292,6 +292,8 @@ export interface PathwayOptions {
   separationMeters: number;
   /** Minimum distance an endpoint must be from the front centroid (m). */
   minRunMeters: number;
+  /** Chaikin smoothing passes applied to each traced route (default 1). */
+  smoothIterations?: number;
 }
 
 /**
@@ -325,20 +327,21 @@ export function extractPathways(field: ArrivalField, opts: PathwayOptions): LatL
     seedCount > 0 ? { lat: seedLat / seedCount, lng: seedLng / seedCount } : cellLatLng(grid, 0);
 
   const chosen: number[] = [];
+  // Greedy pick of well-separated endpoints, but each route is traced and
+  // validated immediately — endpoints whose minimum-travel-time route is too
+  // short to be a meaningful tendril don't consume a slot (or spacing).
+  const pathways: LatLng[][] = [];
   for (const cand of candidates) {
-    if (chosen.length >= opts.maxCount) break;
+    if (pathways.length >= opts.maxCount) break;
     const p = cellLatLng(grid, cand.index);
     if (distMeters(p, seedCentroid) < opts.minRunMeters) continue;
     const tooClose = chosen.some(
       (other) => distMeters(p, cellLatLng(grid, other)) < opts.separationMeters,
     );
-    if (!tooClose) chosen.push(cand.index);
-  }
+    if (tooClose) continue;
 
-  const pathways: LatLng[][] = [];
-  for (const endIndex of chosen) {
     const cells: LatLng[] = [];
-    let i = endIndex;
+    let i = cand.index;
     let guard = 0;
     while (i !== -1 && guard++ < 4000) {
       cells.push(cellLatLng(grid, i));
@@ -346,7 +349,12 @@ export function extractPathways(field: ArrivalField, opts: PathwayOptions): LatL
     }
     if (cells.length < 4) continue;
     cells.reverse(); // front -> outward
-    pathways.push(chaikinOpen(cells, 1));
+    let runMeters = 0;
+    for (let k = 0; k + 1 < cells.length; k++) runMeters += distMeters(cells[k], cells[k + 1]);
+    if (runMeters < opts.minRunMeters) continue;
+
+    chosen.push(cand.index);
+    pathways.push(chaikinOpen(cells, opts.smoothIterations ?? 1));
   }
   return pathways;
 }

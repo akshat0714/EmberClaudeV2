@@ -5,18 +5,20 @@
  * so fills and lines follow hills, canyons and buildings rather than floating
  * as flat stickers. Three main concepts, bottom to top:
  *
- *  1. Burned / reached terrain — muted charcoal fills with faint past-arrival
+ *  1. Burned / reached terrain — charred translucent fills with an age ramp
+ *     (recently burned warmer, older burned darker) and faint past-arrival
  *     contour lines; terrain and roads stay visible.
- *  2. Current active front — the brightest layer: a bold pulsing yellow-orange
- *     line with a subtle glow, labelled "Current active front".
- *  3. ONE predicted extent — "Likely spread in next 30 minutes" (or a
- *     20-minute critical interval when the front is running fast), drawn as a
- *     gradient zone from a FARSITE/Huygens-style minimum-travel-time model:
- *     three stacked fills of the same arrival surface (stronger near the
- *     front) under a single crisp outer boundary.
+ *  2. Current active front — a multi-point advancing frontier: ~224 sampled
+ *     edge points, each advancing on its own schedule derived from the spread
+ *     model (frontierWarp), so tongues surge downwind/upslope/along canyons
+ *     while resisted edges stall. Drawn as the brightest pulsing line.
+ *  3. ONE predicted extent — "Likely spread in next 30 minutes" (20 when the
+ *     head rate is critical) as a gradient zone from the minimum-travel-time
+ *     model, morphing smoothly between refreshes, plus 10–20 crimson
+ *     worm-like tendrils that grow out along the model's fastest routes.
  *
- *  Cause cues stay thin and quiet: faint wind streamlines, 2–5 spread-pathway
- *  ribbons with at most two cause labels, and dashed structure-edge lines.
+ *  Cause cues stay thin: faint wind streamlines, at most a few tendril cause
+ *  labels, and dashed structure-edge lines.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -32,17 +34,21 @@ import {
   PATHWAY_STYLE,
   PREDICTION_ZONE,
   STRUCTURE_EDGE_STYLE,
+  WARP,
   WIND,
   WIND_STREAMS,
   WORDING,
 } from '../data/spreadModelConfig';
 import { computeArrivalField } from '../lib/arrivalTimeModel';
+import { computeFrontierGamma, warpFront } from '../lib/frontierWarp';
 import {
   closeRing,
   interpolateRings,
   prepareTransition,
+  resampleRing,
   ringCentroid,
   type LatLng,
+  type RingTransition,
 } from '../lib/interpolatePolygon';
 import { loadMaps3D } from '../lib/loadGoogleMaps';
 import {
@@ -58,9 +64,12 @@ import { classifyPathway, summarizeDrivers, type ModelSummary } from '../lib/spr
 import { clamp, countAtOrBefore, smoothstep01 } from '../lib/timeUtils';
 
 const TRANSPARENT = 'rgba(0, 0, 0, 0)';
-const FRONT_RING_VERTICES = 96;
 /** Minimum real-time gap between model recomputes (Dijkstra + contours). */
-const MODEL_REFRESH_MS = 900;
+const MODEL_REFRESH_MS = 700;
+/** Scene animation cadence (front pulse, zone morph, tendril growth). */
+const ANIM_TICK_MS = 33;
+/** Vertices used when morphing the displayed zone between model results. */
+const ZONE_MORPH_VERTICES = 144;
 
 type Maps3D = google.maps.maps3d.Maps3DLibrary;
 type Map3D = google.maps.maps3d.Map3DElement;
@@ -96,7 +105,47 @@ function setAttached(map: Map3D, el: HTMLElement, attached: boolean): void {
   else if (!attached && el.isConnected) el.remove();
 }
 
-/** Reusable pool of polylines for dashes, ribbons and wind streams. */
+/** Burned tint by how many stages ago the area was reached (warm → charred). */
+function burnedFill(age: number): string {
+  return BURNED_STYLE.ageRamp[Math.min(Math.max(age, 0), BURNED_STYLE.ageRamp.length - 1)];
+}
+
+/** Leading slice of a tendril path for the progressive grow-out animation. */
+function partialPath(path: LatLng[], fraction: number): LatLng[] {
+  if (fraction >= 1) return path;
+  const scaled = fraction * (path.length - 1);
+  const last = Math.floor(scaled);
+  const out = path.slice(0, last + 1);
+  const t = scaled - last;
+  if (t > 1e-3 && last + 1 < path.length) {
+    const a = path[last];
+    const b = path[last + 1];
+    out.push({ lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t });
+  }
+  return out;
+}
+
+/**
+ * <gmp-marker-3d> rejects empty labels ("empty string is not an accepted
+ * value"), so labels are only ever applied as trimmed, non-empty text.
+ */
+export function safeLabel(label?: string | null): string | undefined {
+  const trimmed = label?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Assign a marker label only when valid; a bad label must never throw. */
+function setMarkerLabel(marker: Marker3D, label?: string | null): void {
+  const text = safeLabel(label);
+  if (!text) return;
+  try {
+    marker.label = text;
+  } catch {
+    // one rejected label must not take down the whole 3D map
+  }
+}
+
+/** Reusable pool of polylines for dashes, tendrils and wind streams. */
 class PolylinePool {
   private lines: Polyline3D[] = [];
   private used = 0;
@@ -174,26 +223,6 @@ interface SceneRefs {
   pathLabelMarkers: Marker3D[];
 }
 
-/**
- * <gmp-marker-3d> rejects empty labels ("empty string is not an accepted
- * value"), so labels are only ever applied as trimmed, non-empty text.
- */
-export function safeLabel(label?: string | null): string | undefined {
-  const trimmed = label?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : undefined;
-}
-
-/** Assign a marker label only when valid; a bad label must never throw. */
-function setMarkerLabel(marker: Marker3D, label?: string | null): void {
-  const text = safeLabel(label);
-  if (!text) return;
-  try {
-    marker.label = text;
-  } catch {
-    // one rejected label must not take down the whole 3D map
-  }
-}
-
 function makeMarker(
   lib: Maps3D,
   clampMode: google.maps.maps3d.AltitudeModeValue,
@@ -259,7 +288,7 @@ function buildScene(lib: Maps3D, container: HTMLElement): SceneRefs {
   map.style.height = '100%';
   container.appendChild(map);
 
-  // 1. burned-history zones (reached reconstruction intervals)
+  // 1. burned-history zones, densified so their draped edges follow terrain
   const zones = SPREAD_STAGES.map((stage, k) => {
     const poly = new lib.Polygon3DElement({
       altitudeMode: CLAMP,
@@ -269,8 +298,8 @@ function buildScene(lib: Maps3D, container: HTMLElement): SceneRefs {
       extruded: false,
       drawsOccludedSegments: false,
     });
-    poly.outerCoordinates = stage.ring;
-    if (k > 0) poly.innerCoordinates = [SPREAD_STAGES[k - 1].ring];
+    poly.outerCoordinates = resampleRing(stage.ring, 160);
+    if (k > 0) poly.innerCoordinates = [resampleRing(SPREAD_STAGES[k - 1].ring, 160)];
     map.append(poly);
     return poly;
   });
@@ -332,14 +361,14 @@ function buildScene(lib: Maps3D, container: HTMLElement): SceneRefs {
   const frontGlow = new lib.Polyline3DElement({
     altitudeMode: CLAMP,
     strokeColor: FRONT_STYLE.glow,
-    strokeWidth: 7,
+    strokeWidth: 9,
     drawsOccludedSegments: false,
   });
   map.append(frontGlow);
   const frontLine = new lib.Polyline3DElement({
     altitudeMode: CLAMP,
     strokeColor: FRONT_STYLE.line,
-    strokeWidth: 4,
+    strokeWidth: 4.5,
     drawsOccludedSegments: false,
   });
   map.append(frontLine);
@@ -370,7 +399,7 @@ function buildScene(lib: Maps3D, container: HTMLElement): SceneRefs {
     { marker: frontMarker, background: '#ff9d3c' },
     { marker: zoneMarker, background: '#ff8a3c' },
     { marker: zoneSubMarker, background: '#9c5b34' },
-    ...pathLabelMarkers.map((marker) => ({ marker, background: '#caa66f' })),
+    ...pathLabelMarkers.map((marker) => ({ marker, background: '#c9543e' })),
     ...structureMarkers.map((marker) => ({ marker, background: '#efe9da' })),
   ]);
 
@@ -404,6 +433,11 @@ interface FireSceneProps {
   onModelUpdate?: (summary: ModelSummary) => void;
 }
 
+interface Tendril {
+  path: LatLng[];
+  width: number;
+}
+
 export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneRefs | null>(null);
@@ -411,6 +445,25 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
   const modelRef = useRef({ interval: -1, p: -1, atEnd: false, lastAt: 0 });
   const horizonRef = useRef(PREDICTION_ZONE.primaryMinutes);
   const structVisibleRef = useRef<boolean[]>(STRUCTURE_EDGES.map(() => false));
+  // frontier-warp exponents per interval (lazy + precomputed after load)
+  const gammaRef = useRef(new Map<number, Float64Array>());
+  // smooth zone morphing between model refreshes
+  const displayedShellsRef = useRef<Array<LatLng[] | null>>(
+    PREDICTION_ZONE.shellFractions.map(() => null),
+  );
+  const innerSnapRef = useRef<LatLng[] | null>(null);
+  const zoneAnimRef = useRef<{
+    start: number;
+    transitions: Array<RingTransition | null>;
+    targets: Array<LatLng[] | null>;
+    done: boolean;
+  } | null>(null);
+  // progressive tendril grow-out
+  const tendrilsRef = useRef<{ list: Tendril[]; start: number; done: boolean }>({
+    list: [],
+    start: 0,
+    done: true,
+  });
   const onModelUpdateRef = useRef(onModelUpdate);
   onModelUpdateRef.current = onModelUpdate;
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -420,10 +473,19 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
   const transitions = useMemo(
     () =>
       SPREAD_STAGES.slice(0, -1).map((stage, j) =>
-        prepareTransition(stage.ring, SPREAD_STAGES[j + 1].ring, FRONT_RING_VERTICES),
+        prepareTransition(stage.ring, SPREAD_STAGES[j + 1].ring, WARP.vertices),
       ),
     [],
   );
+
+  const gammaFor = (interval: number): Float64Array => {
+    let gamma = gammaRef.current.get(interval);
+    if (!gamma) {
+      gamma = computeFrontierGamma(transitions[interval]);
+      gammaRef.current.set(interval, gamma);
+    }
+    return gamma;
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -447,6 +509,10 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
         modelRef.current = { interval: -1, p: -1, atEnd: false, lastAt: 0 };
         horizonRef.current = PREDICTION_ZONE.primaryMinutes;
         structVisibleRef.current = STRUCTURE_EDGES.map(() => false);
+        displayedShellsRef.current = PREDICTION_ZONE.shellFractions.map(() => null);
+        innerSnapRef.current = null;
+        zoneAnimRef.current = null;
+        tendrilsRef.current = { list: [], start: 0, done: true };
         setPhase('ready');
         flyInTimer = window.setTimeout(() => {
           sceneRef.current?.map.flyCameraTo({
@@ -472,7 +538,29 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
     };
   }, [apiKey]);
 
-  /** Recompute the arrival-time model and repaint the prediction layers. */
+  // Precompute the frontier-warp exponents for every interval shortly after
+  // load so playback never hitches on a first-use computation.
+  useEffect(() => {
+    if (phase !== 'ready') return;
+    const timer = window.setTimeout(() => {
+      for (let j = 0; j < transitions.length; j++) gammaFor(j);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, transitions]);
+
+  /** Set the prediction-shell holes from the currently displayed rings. */
+  const applyShellHoles = (scene: SceneRefs): void => {
+    const displayed = displayedShellsRef.current;
+    const inner = innerSnapRef.current;
+    scene.zoneShells.forEach((poly, k) => {
+      const ring = displayed[k];
+      if (!ring || !inner) return;
+      poly.innerCoordinates = [k === 0 ? inner : (displayed[k - 1] ?? inner)];
+    });
+  };
+
+  /** Recompute the arrival-time model and stage the new prediction visuals. */
   const updatePrediction = (scene: SceneRefs, front: LatLng[], atEnd: boolean): void => {
     if (atEnd) {
       // Reconstruction complete: history + final perimeter stay, potential hides.
@@ -486,6 +574,10 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
       setAttached(scene.map, scene.zoneSubMarker, false);
       setAttached(scene.map, scene.frontMarker, false);
       for (const marker of scene.pathLabelMarkers) setAttached(scene.map, marker, false);
+      displayedShellsRef.current = PREDICTION_ZONE.shellFractions.map(() => null);
+      innerSnapRef.current = null;
+      zoneAnimRef.current = null;
+      tendrilsRef.current = { list: [], start: 0, done: true };
       onModelUpdateRef.current?.({
         drivers: summarizeDrivers(front).drivers,
         predictionActive: false,
@@ -513,9 +605,14 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
     horizonRef.current = horizon;
 
     const field = computeArrivalField(front);
-    const inner = extractContour(field, INNER_LEVEL_MINUTES) ?? front;
+    innerSnapRef.current = extractContour(field, INNER_LEVEL_MINUTES) ?? front;
 
-    let previous = inner;
+    // New shell targets from the same arrival surface; the displayed rings
+    // morph toward them (see the animation loop) so refreshes never jump.
+    const now = performance.now();
+    const displayed = displayedShellsRef.current;
+    const targets: Array<LatLng[] | null> = [];
+    const shellTransitions: Array<RingTransition | null> = [];
     let outerRing: LatLng[] | null = null;
     scene.zoneShells.forEach((poly, k) => {
       const isOuter = k === scene.zoneShells.length - 1;
@@ -527,15 +624,33 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
       if (!contour) {
         setFill(poly, TRANSPARENT);
         setStroke(poly, TRANSPARENT);
+        displayed[k] = null;
+        targets.push(null);
+        shellTransitions.push(null);
         return;
       }
-      poly.outerCoordinates = contour;
-      poly.innerCoordinates = [previous];
       setFill(poly, PREDICTION_ZONE.shellFills[k]);
       setStroke(poly, isOuter ? PREDICTION_ZONE.boundaryStroke : TRANSPARENT);
       if (isOuter) outerRing = contour;
-      previous = contour;
+      const previous = displayed[k];
+      if (!previous) {
+        // first appearance: snap, then morph on subsequent refreshes
+        displayed[k] = contour;
+        poly.outerCoordinates = contour;
+        targets.push(contour);
+        shellTransitions.push(null);
+      } else {
+        targets.push(contour);
+        shellTransitions.push(prepareTransition(previous, contour, ZONE_MORPH_VERTICES));
+      }
     });
+    applyShellHoles(scene);
+    zoneAnimRef.current = {
+      start: now,
+      transitions: shellTransitions,
+      targets,
+      done: shellTransitions.every((t) => t === null),
+    };
 
     if (outerRing) {
       const lead = leadingPoint(outerRing, WIND.spreadBearingDeg);
@@ -567,20 +682,24 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
       scene.windStreamPool.hideAll();
     }
 
-    // spread-pathway ribbons: the model's lowest-cost routes, with at most
-    // two distinct cause labels so the cues never dominate the map
-    scene.pathwayPool.begin();
+    // crimson advancing tendrils: the model's fastest routes out of the
+    // front, grown progressively by the animation loop
     const pathways = extractPathways(field, {
-      minMinutes: horizon * 0.75,
+      minMinutes: horizon * PATHWAY_STYLE.windowFraction,
       maxMinutes: horizon + 2,
       maxCount: PATHWAY_STYLE.maxCount,
-      separationMeters: 500,
-      minRunMeters: 350,
+      separationMeters: PATHWAY_STYLE.separationMeters,
+      minRunMeters: PATHWAY_STYLE.minRunMeters,
+      smoothIterations: 2,
     });
-    for (const path of pathways) {
-      scene.pathwayPool.draw(path, PATHWAY_STYLE.stroke, PATHWAY_STYLE.width);
-    }
-    scene.pathwayPool.end();
+    tendrilsRef.current = {
+      list: pathways.map((path, i) => ({
+        path,
+        width: i < PATHWAY_STYLE.mainCount ? PATHWAY_STYLE.widthMain : PATHWAY_STYLE.width,
+      })),
+      start: now,
+      done: false,
+    };
 
     const seenCauses = new Set<string>();
     let labelIndex = 0;
@@ -613,15 +732,10 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
     const reachedStage = Math.max(0, countAtOrBefore(stageTimes, time) - 1);
     const atEnd = time >= stageTimes[stageTimes.length - 1];
 
-    // burned history: subtle charcoal fills + faint past contours
+    // burned history: charred age-ramped fills + faint past contours
     SPREAD_STAGES.forEach((_, k) => {
       const visible = time >= stageTimes[k];
-      const fill = !visible
-        ? TRANSPARENT
-        : k === reachedStage
-          ? BURNED_STYLE.recentFill
-          : BURNED_STYLE.olderFill;
-      setFill(scene.zones[k], fill);
+      setFill(scene.zones[k], visible ? burnedFill(reachedStage - k) : TRANSPARENT);
       setStroke(scene.zones[k], visible ? BURNED_STYLE.historyStroke : TRANSPARENT);
     });
 
@@ -644,7 +758,8 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
       setAttached(scene.map, scene.structureMarkers[i], visible);
     });
 
-    // moving front between stages
+    // multi-point advancing front: every frontier vertex follows its own
+    // model-derived schedule (tongues surge, resisted edges stall)
     const interval = Math.min(reachedStage, SPREAD_STAGES.length - 2);
     const span = Math.max(stageTimes[interval + 1] - stageTimes[interval], 1);
     const p = atEnd ? 1 : clamp(smoothstep01((time - stageTimes[interval]) / span), 0.01, 1);
@@ -653,9 +768,9 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
     const now = performance.now();
     let front: LatLng[] | null = null;
     const geometryStale =
-      interval !== last.interval || Math.abs(p - last.p) > 0.004 || (p === 1 && last.p !== 1);
-    if (geometryStale && (interval !== last.interval || now - last.appliedAt > 45)) {
-      front = interpolateRings(transitions[interval], p);
+      interval !== last.interval || Math.abs(p - last.p) > 0.0015 || (p === 1 && last.p !== 1);
+    if (geometryStale && (interval !== last.interval || now - last.appliedAt > ANIM_TICK_MS)) {
+      front = warpFront(transitions[interval], gammaFor(interval), p);
       const closed = closeRing(front);
       scene.frontGlow.coordinates = closed;
       scene.frontLine.coordinates = closed;
@@ -664,38 +779,77 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
       } else {
         scene.activeBand.outerCoordinates = front;
         scene.activeBand.innerCoordinates = [transitions[interval].a];
-        setFill(scene.activeBand, BURNED_STYLE.recentFill);
+        setFill(scene.activeBand, BURNED_STYLE.activeFill);
       }
       lastFrontRef.current = { interval, p, appliedAt: now };
     }
 
     // spread-potential model — throttled, since each refresh runs Dijkstra +
-    // contour extraction and repaints the prediction layers
+    // contour extraction; the animation loop morphs visuals between results
     const m = modelRef.current;
     const modelStale = atEnd !== m.atEnd || interval !== m.interval || Math.abs(p - m.p) > 0.02;
     if (modelStale && (atEnd !== m.atEnd || now - m.lastAt > MODEL_REFRESH_MS)) {
-      front = front ?? interpolateRings(transitions[interval], p);
+      front = front ?? warpFront(transitions[interval], gammaFor(interval), p);
       updatePrediction(scene, front, atEnd);
       modelRef.current = { interval, p, atEnd, lastAt: now };
     }
   });
 
-  // Gentle real-time pulse on the front line so "current position" is obvious
-  // even while paused. Stroke-only updates, throttled.
+  // Scene animation loop: front pulse, smooth zone morphing between model
+  // refreshes, and progressive tendril grow-out. Throttled property writes.
   useEffect(() => {
     if (phase !== 'ready') return;
     let raf = 0;
     let lastApply = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      if (now - lastApply < 80) return;
+      if (now - lastApply < ANIM_TICK_MS) return;
       lastApply = now;
       const scene = sceneRef.current;
       if (!scene) return;
+
+      // gentle pulse so "current position" reads even while paused
       const s = Math.sin((now / 1800) * Math.PI * 2);
-      scene.frontLine.strokeWidth = 3.4 + 0.8 * s;
-      scene.frontLine.strokeColor = `rgba(255, 244, 180, ${(0.82 + 0.15 * s).toFixed(3)})`;
-      scene.frontGlow.strokeWidth = 6 + 1.4 * s;
+      scene.frontLine.strokeWidth = 4.2 + 1.0 * s;
+      scene.frontLine.strokeColor = `rgba(255, 244, 180, ${(0.84 + 0.14 * s).toFixed(3)})`;
+      scene.frontGlow.strokeWidth = 8.5 + 2.0 * s;
+
+      // morph the displayed prediction shells toward the latest model result
+      const anim = zoneAnimRef.current;
+      if (anim && !anim.done) {
+        const t = clamp((now - anim.start) / PREDICTION_ZONE.morphMs, 0, 1);
+        const eased = smoothstep01(t);
+        anim.transitions.forEach((transition, k) => {
+          if (!transition) return;
+          const ring =
+            t >= 1 ? anim.targets[k]! : interpolateRings(transition, eased);
+          displayedShellsRef.current[k] = ring;
+          scene.zoneShells[k].outerCoordinates = ring;
+        });
+        applyShellHoles(scene);
+        if (t >= 1) anim.done = true;
+      }
+
+      // grow tendrils out from the front, staggered so they feel alive
+      const tendrils = tendrilsRef.current;
+      if (!tendrils.done) {
+        let allDone = true;
+        scene.pathwayPool.begin();
+        tendrils.list.forEach((tendril, i) => {
+          const frac = clamp(
+            (now - tendrils.start - i * PATHWAY_STYLE.staggerMs) / PATHWAY_STYLE.growMs,
+            0,
+            1,
+          );
+          if (frac < 1) allDone = false;
+          const pts = partialPath(tendril.path, frac);
+          if (pts.length >= 2) {
+            scene.pathwayPool.draw(pts, PATHWAY_STYLE.stroke, tendril.width);
+          }
+        });
+        scene.pathwayPool.end();
+        if (allDone) tendrils.done = true;
+      }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);

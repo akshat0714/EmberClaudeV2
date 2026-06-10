@@ -112,7 +112,7 @@ export function summarizeDrivers(frontRing: LatLng[]): DriverSummary {
   };
 }
 
-export type PathwayCause = 'Wind-driven spread' | 'Uphill slope influence' | 'Canyon channeling';
+export type PathwayCause = 'Wind-driven' | 'Uphill run' | 'Canyon-aligned spread';
 
 /**
  * Classify a spread pathway by its dominant driver, for the small on-terrain
@@ -141,11 +141,11 @@ export function classifyPathway(path: LatLng[]): PathwayCause {
     canyon += g.canyon[idx] * Math.abs(ux * g.canDirX[idx] + uy * g.canDirY[idx]);
     steps++;
   }
-  if (steps === 0) return 'Wind-driven spread';
+  if (steps === 0) return 'Wind-driven';
   const windScore = wind / steps;
   const slopeScore = (slope / steps) * 1.7;
   const canyonScore = (canyon / steps) * 1.5;
-  if (canyonScore >= windScore && canyonScore >= slopeScore) return 'Canyon channeling';
-  if (slopeScore >= windScore) return 'Uphill slope influence';
-  return 'Wind-driven spread';
+  if (canyonScore >= windScore && canyonScore >= slopeScore) return 'Canyon-aligned spread';
+  if (slopeScore >= windScore) return 'Uphill run';
+  return 'Wind-driven';
 }

@@ -88,10 +88,16 @@ Time** propagation (Dijkstra over a terrain cost grid) with an **elliptical spre
   rear-focus ellipse form R(θ) = R_head·(1−ε)/(1−ε·cosθ) — measured head/flank/back ≈
   18.7 / 1.8 / 1.0 m/min in open grass. Canyon channeling multiplies speed along drainage
   axes; developed blocks are near-barriers; the WUI fringe is slightly slowed.
+- **Frontier-point front:** the displayed active edge is ~224 independent frontier points.
+  Per interval, each point's advancement schedule comes from the model's pace toward its
+  target position (progress = p^γ, γ smoothed around the ring), so tongues surge
+  downwind/upslope/along canyons while resisted edges stall — yet every point lands exactly on
+  the historical stage ring at the interval end. 10–20 crimson tendrils grow out along the
+  model's fastest routes (validated minimum-travel-time traces, not decoration).
 - The raw grid is never shown: marching-squares contours + Chaikin smoothing produce the dense
   (~200-vertex) zone geometry, clamped so the visible boundary never dips behind the front;
-  the Dijkstra predecessor tree produces the pathway ribbons. The model refreshes about once a
-  second as the timeline moves (~25 ms per refresh) and pauses at the final footprint.
+  the displayed zone morphs smoothly between model refreshes. The model refreshes ~1.4×/second
+  as the timeline moves (~25 ms per refresh) and pauses at the final footprint.
 - Verified by node smoke tests: kernel ratios, shell nesting, monotone growth, downwind
   stretch vs upwind pinch, barrier containment, pathway/cause and driver sanity.
 

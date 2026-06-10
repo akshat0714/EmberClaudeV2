@@ -109,7 +109,7 @@ export default function InfoPanel({
           </li>
           <li>
             <span className="swatch swatch-pathway" />
-            <span>Spread pathways (wind · slope · canyon)</span>
+            <span>Likely advancing pathways (wind · slope · canyon)</span>
           </li>
           <li>
             <span className="swatch swatch-wind" aria-hidden="true">

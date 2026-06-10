@@ -84,13 +84,16 @@ export const PREDICTION_ZONE = {
   /** ...and relax back to the primary interval below this one (hysteresis). */
   relaxHeadSpeedMpm: 18.5,
   shellFractions: [1 / 3, 2 / 3, 1],
+  /** Gradient: orange at the front fading to crimson/deep red at the edge. */
   shellFills: [
-    'rgba(255, 140, 40, 0.30)',
-    'rgba(255, 110, 40, 0.20)',
-    'rgba(255, 88, 45, 0.13)',
+    'rgba(255, 150, 40, 0.30)',
+    'rgba(240, 95, 40, 0.21)',
+    'rgba(200, 55, 40, 0.14)',
   ],
-  boundaryStroke: 'rgba(255, 172, 84, 0.95)',
+  boundaryStroke: 'rgba(255, 150, 80, 0.92)',
   boundaryWidth: 2.5,
+  /** Displayed zone morphs to each new model result over this long. */
+  morphMs: 480,
 };
 
 /** Faint wind streamlines (direction cue), laid out around the predicted zone. */
@@ -105,12 +108,13 @@ export const WIND_STREAMS = {
   width: 1.2,
 };
 
-/** Burned-history styling: terrain must stay clearly visible underneath. */
+/** Burned-history styling: terrain must stay clearly visible underneath.
+ *  Recently burned reads warmer; older burned reads darker (charred). */
 export const BURNED_STYLE = {
-  /** Most recently reached interval. */
-  recentFill: 'rgba(60, 20, 15, 0.18)',
-  /** Intervals reached earlier. */
-  olderFill: 'rgba(80, 25, 18, 0.22)',
+  /** Region currently being overrun (behind the advancing front). */
+  activeFill: 'rgba(112, 46, 26, 0.20)',
+  /** Age ramp: [just reached, one stage back, older]. */
+  ageRamp: ['rgba(96, 38, 22, 0.22)', 'rgba(78, 28, 18, 0.23)', 'rgba(58, 20, 14, 0.24)'],
   /** Faint historical arrival contours (past stage boundaries). */
   historyStroke: 'rgba(150, 55, 40, 0.4)',
   historyStrokeWidth: 1,
@@ -118,15 +122,46 @@ export const BURNED_STYLE = {
 
 export const FRONT_STYLE = {
   line: 'rgba(255, 244, 180, 0.95)',
-  glow: 'rgba(255, 190, 80, 0.22)',
+  glow: 'rgba(255, 190, 80, 0.30)',
+};
+
+/**
+ * Frontier warp: every front vertex advances on its own schedule.
+ * Vertex progress = p^γ, where γ comes from the model's travel time to that
+ * vertex's target position — favored directions (downwind, uphill, canyons)
+ * get γ < 1 and surge ahead as tongues; resisted edges get γ > 1 and stall.
+ * All vertices still reach the historical stage ring exactly at p = 1.
+ */
+export const WARP = {
+  /** Frontier sample count around the active front. */
+  vertices: 224,
+  /** Exponent for the fastest frontier points (advance earliest). */
+  gammaFast: 0.5,
+  /** Exponent for the slowest frontier points (advance last). */
+  gammaSlow: 2.2,
+  /** Ring-neighbor smoothing passes so the front stays one coherent shape. */
+  smoothPasses: 2,
+  /** Propagation cap when ranking target-vertex travel times. */
+  capMinutes: 160,
 };
 
 export const PATHWAY_STYLE = {
-  stroke: 'rgba(255, 236, 200, 0.55)',
-  width: 1.8,
-  maxCount: 5,
+  /** Crimson advancing tendrils extending from the active front. */
+  stroke: 'rgba(228, 68, 48, 0.78)',
+  /** Leading (fastest) tendrils draw slightly heavier. */
+  widthMain: 2.9,
+  width: 2.0,
+  mainCount: 4,
+  maxCount: 14,
   /** At most this many pathways get an on-terrain cause label. */
-  labelMax: 2,
+  labelMax: 3,
+  /** Progressive grow-out animation per model refresh. */
+  growMs: 600,
+  staggerMs: 40,
+  /** Endpoint selection: arrival window (fraction of horizon) and spacing. */
+  windowFraction: 0.4,
+  separationMeters: 220,
+  minRunMeters: 300,
 };
 
 export const STRUCTURE_EDGE_STYLE = {
