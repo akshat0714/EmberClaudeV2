@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import FireScene from './components/FireScene';
+import EvacuationMode from './components/EvacuationMode';
+import FireScene, { type EvacuationView } from './components/FireScene';
 import InfoPanel, { type StructureStatus } from './components/InfoPanel';
 import TimelineControls, { type TimelineStage } from './components/TimelineControls';
+import { useEvacuationController } from './lib/evacuationRouting';
+import type { FireRiskSnapshot } from './lib/fireRiskGeometry';
 import type { ModelSummary } from './lib/spreadDrivers';
 import {
   APP_SUBTITLE,
@@ -103,6 +106,16 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
     predictionActive: true,
     horizonMinutes: PREDICTION_ZONE.primaryMinutes,
   });
+  const [risk, setRisk] = useState<FireRiskSnapshot | null>(null);
+  const evacuation = useEvacuationController(risk);
+
+  const evacuationView: EvacuationView = {
+    active: evacuation.state.enabled,
+    fix: evacuation.state.fix,
+    picking: evacuation.state.picking,
+    routePath: evacuation.state.best?.candidate.path ?? null,
+    destination: evacuation.state.best?.candidate.destination ?? null,
+  };
 
   const timelineStages = useMemo<TimelineStage[]>(
     () =>
@@ -143,7 +156,14 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
 
   return (
     <div className="app-root">
-      <FireScene apiKey={apiKey} time={clock.time} onModelUpdate={setModel} />
+      <FireScene
+        apiKey={apiKey}
+        time={clock.time}
+        onModelUpdate={setModel}
+        onRiskSnapshot={setRisk}
+        evacuation={evacuationView}
+        onMapPick={evacuation.actions.setManualFix}
+      />
       <div className="edge-fade" aria-hidden="true" />
 
       <header className="title-block">
@@ -151,6 +171,8 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
         <p className="subtitle">{APP_SUBTITLE}</p>
         <p className="tagline">{APP_TAGLINE}</p>
       </header>
+
+      <EvacuationMode state={evacuation.state} actions={evacuation.actions} />
 
       <InfoPanel
         time={clock.time}

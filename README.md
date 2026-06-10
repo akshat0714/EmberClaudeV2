@@ -30,7 +30,10 @@ The app shows a clean setup screen until a key is configured:
 1. In the [Google Cloud console](https://console.cloud.google.com/google/maps-apis), create an
    API key. The project must have **billing enabled** (photorealistic 3D tiles require it; the
    monthly free tier comfortably covers demo usage).
-2. Enable the **Maps JavaScript API** and the **Map Tiles API** for that project.
+2. Enable for that project:
+   - **Maps JavaScript API** (3D map + routing client)
+   - **Map Tiles API** (photorealistic 3D tiles)
+   - **Directions API** (evacuation route candidates via `DirectionsService`)
 3. Create `.env` in the project root (see `.env.example`):
 
    ```bash
@@ -40,7 +43,34 @@ The app shows a clean setup screen until a key is configured:
 4. Restart `npm run dev` (Vite reads `.env` at startup).
 
 If Google rejects the key at runtime, the app replaces the map with a clear diagnostic card
-instead of a black screen.
+instead of a black screen. If only Directions is missing, the fire scene still works and the
+evacuation card explains that routing is unavailable.
+
+## Evacuation Mode (decision support, not official guidance)
+
+A single toggle adds a Google-Maps-style evacuation layer on top of the simulation:
+
+- **Your position** — browser GPS via `navigator.geolocation.watchPosition()` (high-accuracy,
+  continuous), drawn as a blue dot with a white ring, a translucent accuracy circle, and a
+  heading wedge when available. Location never leaves the browser. If permission is denied or
+  GPS is unavailable: **Use demo location** or **Drop my location** (click the map).
+- **Suggested evacuation route** — real road candidates from the Maps JS `DirectionsService`
+  (with alternatives) to simulated safe destinations, each risk-scored against the live model:
+  any candidate that crosses the current fire, the active-front buffer, or the predicted
+  *"Likely spread in next 30 minutes"* envelope is rejected outright; survivors are ranked by
+  duration, distance, envelope proximity, tendril crossings, downwind-toward-fire travel and
+  canyon exposure. The best route draws as a bright blue path with a green safe-zone marker.
+- **Honesty by construction** — destinations are labelled *(simulated)*; the card always shows
+  *"Model-based route. Follow local authorities."* and *"Not official emergency guidance."*;
+  and when every candidate is rejected the app says
+  *"No modeled low-risk route found. Follow official evacuation instructions immediately."*
+  instead of faking a route. Production use would require official evacuation zones, road
+  closures, shelters and alerts.
+- **Continuous updates** — the current route is re-scored on every model refresh and GPS fix;
+  network re-routing fires when the user strays off-route, when the route becomes unsafe, or
+  periodically (~15 s) after meaningful movement.
+- **Demo controls** — judges can drive the dot along the route (with live ETA/distance and
+  automatic rerouting) or nudge it toward the fire to watch the risk status and route react.
 
 ---
 

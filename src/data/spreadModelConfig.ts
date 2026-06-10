@@ -84,13 +84,14 @@ export const PREDICTION_ZONE = {
   /** ...and relax back to the primary interval below this one (hysteresis). */
   relaxHeadSpeedMpm: 18.5,
   shellFractions: [1 / 3, 2 / 3, 1],
-  /** Gradient: orange at the front fading to crimson/deep red at the edge. */
+  /** Gradient: bold yellow (highest-confidence next spread, nearest the
+   *  front) fading through amber to soft orange at the envelope edge. */
   shellFills: [
-    'rgba(255, 150, 40, 0.30)',
-    'rgba(240, 95, 40, 0.21)',
-    'rgba(200, 55, 40, 0.14)',
+    'rgba(255, 228, 92, 0.32)',
+    'rgba(255, 190, 64, 0.22)',
+    'rgba(255, 150, 60, 0.14)',
   ],
-  boundaryStroke: 'rgba(255, 150, 80, 0.92)',
+  boundaryStroke: 'rgba(255, 212, 96, 0.95)',
   boundaryWidth: 2.5,
   /** Displayed zone morphs to each new model result over this long. */
   morphMs: 480,
@@ -109,12 +110,13 @@ export const WIND_STREAMS = {
 };
 
 /** Burned-history styling: terrain must stay clearly visible underneath.
- *  Recently burned reads warmer; older burned reads darker (charred). */
+ *  Fire core (just reached) reads deep crimson — the most intense area —
+ *  fading through red-brown to a transparent charcoal for old burned. */
 export const BURNED_STYLE = {
   /** Region currently being overrun (behind the advancing front). */
-  activeFill: 'rgba(112, 46, 26, 0.20)',
-  /** Age ramp: [just reached, one stage back, older]. */
-  ageRamp: ['rgba(96, 38, 22, 0.22)', 'rgba(78, 28, 18, 0.23)', 'rgba(58, 20, 14, 0.24)'],
+  activeFill: 'rgba(150, 32, 20, 0.26)',
+  /** Age ramp: [fire core / just reached, one stage back, old burned]. */
+  ageRamp: ['rgba(120, 26, 18, 0.30)', 'rgba(92, 30, 20, 0.25)', 'rgba(58, 26, 18, 0.20)'],
   /** Faint historical arrival contours (past stage boundaries). */
   historyStroke: 'rgba(150, 55, 40, 0.4)',
   historyStrokeWidth: 1,
@@ -162,6 +164,70 @@ export const PATHWAY_STYLE = {
   windowFraction: 0.4,
   separationMeters: 220,
   minRunMeters: 300,
+  /**
+   * Tendril ORIGINS must also be separated, so the 10–20 pathways genuinely
+   * start from distinct active sub-fronts around the fire edge rather than
+   * fanning out of one hot spot.
+   */
+  originSeparationMeters: 240,
+};
+
+/** Evacuation routing: buffers, scoring weights and update cadence.
+ *  All outputs are model-based suggestions, never official guidance. */
+export const EVACUATION = {
+  /** Route samples closer than this to the active front are hard-rejected. */
+  frontBufferM: 250,
+  /** Route samples closer than this to a fire tendril are penalized hard. */
+  tendrilBufferM: 140,
+  /** Accepted routes nearer than this to the envelope show a caution state. */
+  envelopeCautionM: 400,
+  /** Sampling step along candidate routes. */
+  sampleStepM: 60,
+  /** GPS accuracy above this shows the "Location accuracy is low." note. */
+  lowAccuracyM: 75,
+  /** Demo-drive step per second along the suggested route. */
+  demoDriveStepM: 230,
+  /** Demo "move toward fire" nudge. */
+  demoNudgeM: 220,
+  reroute: {
+    /** Re-route when the user moves at least this far from the route origin. */
+    moveThresholdM: 120,
+    /** Re-route when the user strays this far off the suggested route. */
+    deviationM: 150,
+    /** Periodic re-route while evacuation mode is on. */
+    minIntervalMs: 15000,
+    /** Floor between network routing calls. */
+    networkFloorMs: 4000,
+  },
+  score: {
+    perMinute: 1,
+    perKm: 0.4,
+    /** Penalty weight for proximity to the predicted envelope (0..500 m). */
+    envelopeProximity: 6,
+    /** Penalty per route sample that crosses a tendril buffer. */
+    tendrilCross: 8,
+    /** Penalty weight for driving toward the fire while near the envelope. */
+    towardFire: 3,
+    /** Penalty weight for riding canyon corridors near the envelope. */
+    canyon: 1.5,
+    /** Penalty per km spent escaping out of the risk area at the start. */
+    escapePerKm: 10,
+  },
+};
+
+/** Exact evacuation wording (decision-support honesty). */
+export const EVAC_WORDING = {
+  title: 'Suggested evacuation route',
+  modelBased: 'Model-based route. Follow local authorities.',
+  notOfficial: 'Not official emergency guidance.',
+  emergency: 'If you are in immediate danger, call emergency services and follow official alerts.',
+  statusClear: 'Clear of modeled 30-min fire zone',
+  statusNear: 'Route is near modeled fire-risk area',
+  statusNone: 'No modeled low-risk route found. Follow official evacuation instructions immediately.',
+  lowAccuracy: 'Location accuracy is low.',
+  locationExplainer:
+    'Your location stays in your browser and is only used to suggest a route away from modeled fire-risk zones.',
+  simulatedNote: 'Safe zones are simulated for this demo, not official shelters.',
 };
 
 export const STRUCTURE_EDGE_STYLE = {

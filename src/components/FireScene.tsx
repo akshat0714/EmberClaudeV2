@@ -62,6 +62,35 @@ import {
 } from '../lib/predictionBands';
 import { classifyPathway, summarizeDrivers, type ModelSummary } from '../lib/spreadDrivers';
 import { clamp, countAtOrBefore, smoothstep01 } from '../lib/timeUtils';
+import type { FireRiskSnapshot } from '../lib/fireRiskGeometry';
+import {
+  customizePins,
+  makeMarker,
+  safeLabel,
+  setMarkerLabel,
+} from '../lib/markerUtils';
+import type { LocationFix } from '../lib/userLocation';
+import type { SafeDestination } from '../data/demoEvacuationData';
+import EvacuationRouteLayer from './EvacuationRouteLayer';
+import UserLocationLayer from './UserLocationLayer';
+
+export { safeLabel };
+
+/** Handle to the live 3D scene for sibling overlay layers. */
+export interface SceneHandle {
+  lib: google.maps.maps3d.Maps3DLibrary;
+  map: google.maps.maps3d.Map3DElement;
+  clampMode: google.maps.maps3d.AltitudeModeValue;
+}
+
+/** Evacuation overlay state rendered into the 3D scene. */
+export interface EvacuationView {
+  active: boolean;
+  fix: LocationFix | null;
+  picking: boolean;
+  routePath: LatLng[] | null;
+  destination: SafeDestination | null;
+}
 
 const TRANSPARENT = 'rgba(0, 0, 0, 0)';
 /** Minimum real-time gap between model recomputes (Dijkstra + contours). */
@@ -123,26 +152,6 @@ function partialPath(path: LatLng[], fraction: number): LatLng[] {
     out.push({ lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t });
   }
   return out;
-}
-
-/**
- * <gmp-marker-3d> rejects empty labels ("empty string is not an accepted
- * value"), so labels are only ever applied as trimmed, non-empty text.
- */
-export function safeLabel(label?: string | null): string | undefined {
-  const trimmed = label?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : undefined;
-}
-
-/** Assign a marker label only when valid; a bad label must never throw. */
-function setMarkerLabel(marker: Marker3D, label?: string | null): void {
-  const text = safeLabel(label);
-  if (!text) return;
-  try {
-    marker.label = text;
-  } catch {
-    // one rejected label must not take down the whole 3D map
-  }
 }
 
 /** Reusable pool of polylines for dashes, tendrils and wind streams. */
@@ -221,61 +230,6 @@ interface SceneRefs {
   zoneMarker: Marker3D;
   zoneSubMarker: Marker3D;
   pathLabelMarkers: Marker3D[];
-}
-
-function makeMarker(
-  lib: Maps3D,
-  clampMode: google.maps.maps3d.AltitudeModeValue,
-  label: string | undefined,
-  position: LatLng,
-): Marker3D {
-  const options: google.maps.maps3d.Marker3DElementOptions = {
-    position: { ...position, altitude: 0 },
-    altitudeMode: clampMode,
-    extruded: false,
-  };
-  const text = safeLabel(label);
-  if (text) options.label = text;
-  try {
-    return new lib.Marker3DElement(options);
-  } catch {
-    // construction must never crash the scene; retry without the label
-    delete options.label;
-    return new lib.Marker3DElement(options);
-  }
-}
-
-/**
- * Best-effort replacement of the default red marker pins with small tinted
- * pins. Wrapped in try/catch — if the marker library or the slotted-pin
- * pattern is unavailable, the default pins still work.
- */
-function customizePins(entries: Array<{ marker: Marker3D; background: string }>): void {
-  void (async () => {
-    try {
-      const markerLib = (await google.maps.importLibrary('marker')) as {
-        PinElement?: new (opts: Record<string, unknown>) => { element: HTMLElement };
-      };
-      if (!markerLib.PinElement) return;
-      for (const { marker, background } of entries) {
-        try {
-          const pin = new markerLib.PinElement({
-            background,
-            borderColor: 'rgba(255, 255, 255, 0.9)',
-            glyphColor: 'rgba(0, 0, 0, 0.3)',
-            scale: 0.55,
-          });
-          const template = document.createElement('template');
-          template.content.append(pin.element);
-          marker.append(template);
-        } catch {
-          // keep the default pin for this marker
-        }
-      }
-    } catch {
-      // marker library unavailable — default pins are fine
-    }
-  })();
 }
 
 function buildScene(lib: Maps3D, container: HTMLElement): SceneRefs {
@@ -431,6 +385,12 @@ interface FireSceneProps {
   time: number;
   /** Receives the High/Medium/Low driver summary after each model refresh. */
   onModelUpdate?: (summary: ModelSummary) => void;
+  /** Receives the fire-risk geometry snapshot after each model refresh. */
+  onRiskSnapshot?: (snapshot: FireRiskSnapshot) => void;
+  /** Evacuation overlays (user dot, route, destination) when mode is on. */
+  evacuation?: EvacuationView;
+  /** Called when the user picks a manual location on the map. */
+  onMapPick?: (point: LatLng) => void;
 }
 
 interface Tendril {
@@ -438,7 +398,14 @@ interface Tendril {
   width: number;
 }
 
-export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProps) {
+export default function FireScene({
+  apiKey,
+  time,
+  onModelUpdate,
+  onRiskSnapshot,
+  evacuation,
+  onMapPick,
+}: FireSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneRefs | null>(null);
   const lastFrontRef = useRef({ interval: -1, p: -1, appliedAt: 0 });
@@ -466,8 +433,11 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
   });
   const onModelUpdateRef = useRef(onModelUpdate);
   onModelUpdateRef.current = onModelUpdate;
+  const onRiskSnapshotRef = useRef(onRiskSnapshot);
+  onRiskSnapshotRef.current = onRiskSnapshot;
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState('');
+  const [sceneHandle, setSceneHandle] = useState<SceneHandle | null>(null);
 
   const stageTimes = useMemo(() => SPREAD_STAGES.map((s) => Date.parse(s.timeIso)), []);
   const transitions = useMemo(
@@ -513,6 +483,11 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
         innerSnapRef.current = null;
         zoneAnimRef.current = null;
         tendrilsRef.current = { list: [], start: 0, done: true };
+        setSceneHandle({
+          lib,
+          map: sceneRef.current.map,
+          clampMode: lib.AltitudeMode?.CLAMP_TO_GROUND ?? 'CLAMP_TO_GROUND',
+        });
         setPhase('ready');
         flyInTimer = window.setTimeout(() => {
           sceneRef.current?.map.flyCameraTo({
@@ -535,6 +510,7 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
       window.gm_authFailure = undefined;
       sceneRef.current?.map.remove();
       sceneRef.current = null;
+      setSceneHandle(null);
     };
   }, [apiKey]);
 
@@ -581,6 +557,14 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
       onModelUpdateRef.current?.({
         drivers: summarizeDrivers(front).drivers,
         predictionActive: false,
+        horizonMinutes: horizonRef.current,
+      });
+      onRiskSnapshotRef.current?.({
+        frontRing: front,
+        envelopeRing: null,
+        tendrils: [],
+        windBearingDeg: WIND.spreadBearingDeg,
+        fireCentroid: ringCentroid(front),
         horizonMinutes: horizonRef.current,
       });
       return;
@@ -691,6 +675,7 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
       separationMeters: PATHWAY_STYLE.separationMeters,
       minRunMeters: PATHWAY_STYLE.minRunMeters,
       smoothIterations: 2,
+      originSeparationMeters: PATHWAY_STYLE.originSeparationMeters,
     });
     tendrilsRef.current = {
       list: pathways.map((path, i) => ({
@@ -721,6 +706,14 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
     setAttached(scene.map, scene.frontMarker, true);
 
     onModelUpdateRef.current?.({ drivers, predictionActive: true, horizonMinutes: horizon });
+    onRiskSnapshotRef.current?.({
+      frontRing: front,
+      envelopeRing: outerRing,
+      tendrils: pathways,
+      windBearingDeg: WIND.spreadBearingDeg,
+      fireCentroid: ringCentroid(front),
+      horizonMinutes: horizon,
+    });
   };
 
   // Apply the reconstruction clock to the scene. Everything is a pure
@@ -862,6 +855,21 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
   return (
     <div className="scene-shell">
       <div ref={containerRef} className="scene-container" />
+      {phase === 'ready' && sceneHandle && evacuation?.active && (
+        <>
+          <UserLocationLayer
+            scene={sceneHandle}
+            fix={evacuation.fix}
+            picking={evacuation.picking}
+            onPick={onMapPick}
+          />
+          <EvacuationRouteLayer
+            scene={sceneHandle}
+            routePath={evacuation.routePath}
+            destination={evacuation.destination}
+          />
+        </>
+      )}
       {phase === 'ready' && (
         <button className="recenter-btn glass" onClick={recenter} title="Reset the camera view">
           Recenter

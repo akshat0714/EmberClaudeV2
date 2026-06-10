@@ -294,6 +294,11 @@ export interface PathwayOptions {
   minRunMeters: number;
   /** Chaikin smoothing passes applied to each traced route (default 1). */
   smoothIterations?: number;
+  /**
+   * Minimum spacing between pathway ORIGINS on the front, so each accepted
+   * route extends a distinct active sub-front (default 0 = disabled).
+   */
+  originSeparationMeters?: number;
 }
 
 /**
@@ -330,7 +335,10 @@ export function extractPathways(field: ArrivalField, opts: PathwayOptions): LatL
   // Greedy pick of well-separated endpoints, but each route is traced and
   // validated immediately — endpoints whose minimum-travel-time route is too
   // short to be a meaningful tendril don't consume a slot (or spacing).
+  // Origin separation makes each accepted tendril extend a DISTINCT active
+  // sub-front segment of the fire edge.
   const pathways: LatLng[][] = [];
+  const origins: LatLng[] = [];
   for (const cand of candidates) {
     if (pathways.length >= opts.maxCount) break;
     const p = cellLatLng(grid, cand.index);
@@ -352,8 +360,11 @@ export function extractPathways(field: ArrivalField, opts: PathwayOptions): LatL
     let runMeters = 0;
     for (let k = 0; k + 1 < cells.length; k++) runMeters += distMeters(cells[k], cells[k + 1]);
     if (runMeters < opts.minRunMeters) continue;
+    const originSep = opts.originSeparationMeters ?? 0;
+    if (originSep > 0 && origins.some((o) => distMeters(o, cells[0]) < originSep)) continue;
 
     chosen.push(cand.index);
+    origins.push(cells[0]);
     pathways.push(chaikinOpen(cells, opts.smoothIterations ?? 1));
   }
   return pathways;

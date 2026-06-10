@@ -7,7 +7,43 @@
 
 declare namespace google.maps {
   function importLibrary(name: 'maps3d'): Promise<google.maps.maps3d.Maps3DLibrary>;
+  function importLibrary(name: 'routes'): Promise<google.maps.RoutesLibrary>;
   function importLibrary(name: string): Promise<unknown>;
+
+  interface RoutesLibrary {
+    DirectionsService: typeof DirectionsService;
+  }
+
+  interface DirectionsLatLng {
+    lat(): number;
+    lng(): number;
+  }
+
+  interface DirectionsLeg {
+    distance?: { value: number };
+    duration?: { value: number };
+  }
+
+  interface DirectionsRoute {
+    overview_path?: DirectionsLatLng[];
+    legs?: DirectionsLeg[];
+    summary?: string;
+  }
+
+  interface DirectionsResult {
+    routes: DirectionsRoute[];
+  }
+
+  interface DirectionsRequest {
+    origin: google.maps.maps3d.LatLngLiteral;
+    destination: google.maps.maps3d.LatLngLiteral;
+    travelMode: string;
+    provideRouteAlternatives?: boolean;
+  }
+
+  class DirectionsService {
+    route(request: DirectionsRequest): Promise<DirectionsResult>;
+  }
 }
 
 declare namespace google.maps.maps3d {
