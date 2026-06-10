@@ -174,18 +174,46 @@ interface SceneRefs {
   pathLabelMarkers: Marker3D[];
 }
 
+/**
+ * <gmp-marker-3d> rejects empty labels ("empty string is not an accepted
+ * value"), so labels are only ever applied as trimmed, non-empty text.
+ */
+export function safeLabel(label?: string | null): string | undefined {
+  const trimmed = label?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Assign a marker label only when valid; a bad label must never throw. */
+function setMarkerLabel(marker: Marker3D, label?: string | null): void {
+  const text = safeLabel(label);
+  if (!text) return;
+  try {
+    marker.label = text;
+  } catch {
+    // one rejected label must not take down the whole 3D map
+  }
+}
+
 function makeMarker(
   lib: Maps3D,
   clampMode: google.maps.maps3d.AltitudeModeValue,
-  label: string,
+  label: string | undefined,
   position: LatLng,
 ): Marker3D {
-  return new lib.Marker3DElement({
+  const options: google.maps.maps3d.Marker3DElementOptions = {
     position: { ...position, altitude: 0 },
-    label,
     altitudeMode: clampMode,
     extruded: false,
-  });
+  };
+  const text = safeLabel(label);
+  if (text) options.label = text;
+  try {
+    return new lib.Marker3DElement(options);
+  } catch {
+    // construction must never crash the scene; retry without the label
+    delete options.label;
+    return new lib.Marker3DElement(options);
+  }
 }
 
 /**
@@ -328,8 +356,9 @@ function buildScene(lib: Maps3D, container: HTMLElement): SceneRefs {
     IGNITION_POINT,
   );
   const zoneSubMarker = makeMarker(lib, CLAMP, WORDING.potential, IGNITION_POINT);
+  // created without labels — cause text is assigned when a pathway is shown
   const pathLabelMarkers = Array.from({ length: PATHWAY_STYLE.labelMax }, () =>
-    makeMarker(lib, CLAMP, '', IGNITION_POINT),
+    makeMarker(lib, CLAMP, undefined, IGNITION_POINT),
   );
   const structureMarkers = STRUCTURE_EDGES.map((edge) => {
     const mid = edge.edgeLine[Math.floor(edge.edgeLine.length / 2)];
@@ -510,7 +539,7 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
 
     if (outerRing) {
       const lead = leadingPoint(outerRing, WIND.spreadBearingDeg);
-      scene.zoneMarker.label = WORDING.zoneLabel(horizon);
+      setMarkerLabel(scene.zoneMarker, WORDING.zoneLabel(horizon));
       scene.zoneMarker.position = { ...lead, altitude: 0 };
       setAttached(scene.map, scene.zoneMarker, true);
       scene.zoneSubMarker.position = {
@@ -561,7 +590,7 @@ export default function FireScene({ apiKey, time, onModelUpdate }: FireSceneProp
       if (seenCauses.has(cause)) continue;
       seenCauses.add(cause);
       const marker = scene.pathLabelMarkers[labelIndex++];
-      marker.label = cause;
+      setMarkerLabel(marker, cause);
       marker.position = { ...path[path.length - 1], altitude: 0 };
       setAttached(scene.map, marker, true);
     }
