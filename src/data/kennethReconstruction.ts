@@ -201,7 +201,7 @@ export const STRUCTURE_EDGES: StructureEdge[] = [
   {
     id: 'west-hills',
     name: 'West Hills edge',
-    label: 'Structure-adjacent edge',
+    label: 'Structure-edge resistance',
     description: 'Residential boundary along Victory Blvd / Valley Circle.',
     activeFromStage: 1,
     ring: [

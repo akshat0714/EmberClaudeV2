@@ -19,10 +19,10 @@ export const KENNETH_FIRE = {
 } as const;
 
 export const APP_TITLE = 'Kenneth Fire';
-export const APP_SUBTITLE = '3D Historical Fire-Spread Reconstruction';
+export const APP_SUBTITLE = '3D historical fire-spread reconstruction';
 export const APP_TAGLINE = 'Continuous reconstruction of spread over terrain and structures';
 
 export const MODE_LABEL = 'Reconstruction';
 
 export const DISCLAIMER =
-  'Observed and reconstructed spread zones with model-based spread-potential intervals. Not an official perimeter or emergency guidance.';
+  'Observed and reconstructed spread zones with model-based spread potential. Not an official perimeter. Not emergency guidance.';

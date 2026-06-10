@@ -1,6 +1,6 @@
 import { DISCLAIMER, KENNETH_FIRE, MODE_LABEL } from '../data/kennethFacts';
 import { SPREAD_STAGES } from '../data/kennethReconstruction';
-import { PREDICTION_BANDS, WORDING } from '../data/spreadModelConfig';
+import { WORDING } from '../data/spreadModelConfig';
 import type { DriverLevel, ModelSummary } from '../lib/spreadDrivers';
 import { formatPacificDate, formatPacificTime, formatUtc } from '../lib/timeUtils';
 
@@ -75,11 +75,11 @@ export default function InfoPanel({
         <section>
           <h3>Spread drivers</h3>
           <ul className="driver-list">
-            <DriverRow label="Wind alignment" level={model.drivers.windAlignment} />
-            <DriverRow label="Slope effect" level={model.drivers.slopeEffect} />
-            <DriverRow label="Fuel / vegetation" level={model.drivers.fuelVegetation} />
+            <DriverRow label="Wind" level={model.drivers.windAlignment} />
+            <DriverRow label="Slope" level={model.drivers.slopeEffect} />
+            <DriverRow label="Fuel" level={model.drivers.fuelVegetation} />
             <DriverRow label="Canyon channeling" level={model.drivers.canyonChanneling} />
-            <DriverRow label="Structure adjacency" level={model.drivers.structureAdjacency} />
+            <DriverRow label="Structure-edge resistance" level={model.drivers.structureAdjacency} />
           </ul>
           <p className="section-caption">{WORDING.model}</p>
           {!model.predictionActive && <p className="paused-note">{WORDING.modelPaused}</p>}
@@ -103,32 +103,27 @@ export default function InfoPanel({
             <span className="swatch swatch-front" />
             <span>Current active front</span>
           </li>
-          {PREDICTION_BANDS.map((band) => (
-            <li key={band.minutes}>
-              <span
-                className="swatch swatch-band"
-                style={{
-                  background: band.fill,
-                  borderColor: band.stroke,
-                  borderStyle: band.dashed ? 'dashed' : 'solid',
-                }}
-              />
-              <span>
-                {band.label} <em className="confidence">({band.confidence} confidence)</em>
-              </span>
-            </li>
-          ))}
+          <li>
+            <span className="swatch swatch-zone-pred" />
+            <span>{WORDING.zoneLabel(model.horizonMinutes)}</span>
+          </li>
           <li>
             <span className="swatch swatch-pathway" />
-            <span>Likely spread pathways (terrain + wind)</span>
+            <span>Spread pathways (wind · slope · canyon)</span>
+          </li>
+          <li>
+            <span className="swatch swatch-wind" aria-hidden="true">
+              →
+            </span>
+            <span>Wind direction</span>
           </li>
           <li>
             <span className="swatch swatch-structure" />
-            <span>Structure-adjacent edge — no building damage implied</span>
+            <span>Structure-edge resistance — no building damage implied</span>
           </li>
         </ul>
+        <p className="section-caption">{WORDING.zoneBasis(model.horizonMinutes)}</p>
         <p className="section-caption">{WORDING.potential}</p>
-        <p className="section-caption">{WORDING.confidenceKey}</p>
       </section>
 
       <hr />

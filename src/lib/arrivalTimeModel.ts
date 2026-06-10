@@ -229,36 +229,48 @@ export const WIND_UNIT = { x: Math.sin(WIND_RAD), y: Math.cos(WIND_RAD) };
 /**
  * Directional spread speed (m/min) for a step arriving at cell `to`,
  * travelling along the unit direction (dirX east, dirY north).
+ *
+ * FARSITE/Huygens-style elliptical kernel:
+ *  - Slope acts like added wind (Rothermel): an effective wind-slope vector
+ *    sets the local head-spread direction; its magnitude U drives both the
+ *    head rate and the ellipse elongation.
+ *  - Rate at angle θ off the head direction follows the rear-focus ellipse
+ *    polar form R(θ) = R_head·(1−ε)/(1−ε·cosθ): full rate at the head,
+ *    ≈(1−ε) of it on the flanks, ≈(1−ε)/(1+ε) backing into the wind.
+ *  - Length-to-breadth (hence eccentricity ε) grows with U, simplified after
+ *    Anderson (1983) and clamped for heterogeneous terrain.
+ *  - Canyon/drainage channeling multiplies speed along canyon axes; developed
+ *    blocks (roads, irrigation, structure defense) act as near-barriers and
+ *    the structure-adjacent WUI fringe is slightly slowed.
  */
 export function stepSpeed(g: TerrainGrid, to: number, dirX: number, dirY: number): number {
   const fuel = g.fuel[to];
 
-  // Wind alignment: only travel with a downwind component gets the bonus;
-  // squaring tightens the fast lobe around the wind direction.
-  const windDotRaw = dirX * WIND_UNIT.x + dirY * WIND_UNIT.y;
-  const windDot = Math.max(0, windDotRaw);
-  const windBonus = WIND.alignedBonus * windDot * windDot * fuel;
+  // Effective wind-slope vector: wind plus an uphill-pointing slope term.
+  const slopeMag = Math.hypot(g.gradX[to], g.gradY[to]);
+  let effX = WIND.effectiveWindNumber * WIND_UNIT.x;
+  let effY = WIND.effectiveWindNumber * WIND_UNIT.y;
+  if (slopeMag > 1e-6) {
+    const slopeNumber = Math.min(slopeMag / 0.35, 1) * SPEEDS.slopeWindEquivalent;
+    effX += (g.gradX[to] / slopeMag) * slopeNumber;
+    effY += (g.gradY[to] / slopeMag) * slopeNumber;
+  }
+  const U = Math.hypot(effX, effY);
 
-  // Backing-fire penalty: spread against the wind is strongly suppressed
-  // (a fire backing into a Santa Ana creeps; it does not run).
-  const backing = windDotRaw < 0 ? 1 + WIND.headwindPenalty * windDotRaw : 1;
+  // Head rate of spread, scaled by fuel, dryness and the wind-slope number.
+  const headRos = SPEEDS.baseFuel * fuel * SPEEDS.drynessFactor * (1 + SPEEDS.headWindFactor * U);
 
-  // Uphill slope effect: climb rate (m per m travelled) in the travel
-  // direction; ~0.35 (a 19° slope) is treated as a full-strength run.
-  const climb = dirX * g.gradX[to] + dirY * g.gradY[to];
-  const slopeBonus = SPEEDS.uphillBonus * Math.min(Math.max(climb / 0.35, 0), 1) * fuel;
+  // Elliptical direction dependence.
+  const lb = Math.min(Math.max(1 + SPEEDS.lbPerU * U, SPEEDS.lbMin), SPEEDS.lbMax);
+  const ecc = Math.sqrt(1 - 1 / (lb * lb));
+  const cosTheta = U > 1e-6 ? (dirX * effX + dirY * effY) / U : 0;
+  let speed = (headRos * (1 - ecc)) / (1 - ecc * cosTheta);
 
-  // Canyon channeling: speed boost when moving along (either way) a canyon
-  // axis, scaled by how deep into the canyon the cell sits.
+  // Canyon channeling: terrain funnels wind and convection along canyon axes.
   const canyonDot = Math.abs(dirX * g.canDirX[to] + dirY * g.canDirY[to]);
-  const canyonBonus = SPEEDS.canyonBonus * g.canyon[to] * canyonDot * fuel;
+  speed *= 1 + SPEEDS.canyonFactor * g.canyon[to] * canyonDot;
 
-  let speed =
-    (SPEEDS.baseFuel * fuel * SPEEDS.drynessFactor + slopeBonus + canyonBonus) * backing +
-    windBonus;
-
-  // Barrier penalty: streets, irrigation and structure defense nearly stop
-  // spread inside developed blocks; the WUI fringe is slightly slowed.
+  // Roads / developed-edge resistance, and the slightly-slowed WUI fringe.
   if (g.developed[to]) speed *= SPEEDS.developedFactor;
   else if (g.wui[to]) speed *= SPEEDS.wuiFactor;
 

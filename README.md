@@ -1,13 +1,14 @@
 # Kenneth Fire — 3D Historical Fire-Spread Reconstruction
 
 A judge-friendly, Google-Earth-style 3D demo that tells the Kenneth Fire story (West Hills /
-Calabasas, January 2025) as a **professional arrival-time overlay**: subtle charcoal burned
-history, a bright pulsing active front, model-based **+15/+30/+60/+90 minute spread-potential
-bands**, thin spread-pathway ribbons, and structure-adjacent edge markers — all over **Google
-photorealistic 3D terrain and buildings**.
+Calabasas, January 2025) with three clear concepts: subtle charcoal **burned history**, a bright
+pulsing **current active front**, and **one** model-based prediction — *"Likely spread in next
+30 minutes"* — drawn as a single gradient zone with a crisp boundary, explained by faint wind
+streamlines, thin spread-pathway ribbons, and dashed structure-edge lines. Everything is draped
+onto **Google photorealistic 3D terrain and buildings**.
 
-> Observed and reconstructed spread zones with model-based spread-potential intervals.
-> **Not an official perimeter or emergency guidance.**
+> Observed and reconstructed spread zones with model-based spread potential.
+> **Not an official perimeter. Not emergency guidance.**
 
 No backend. The only network use is Google's map library + 3D tiles.
 
@@ -53,38 +54,46 @@ instead of a black screen.
 3. **Current active front** — the brightest layer: a crisp, gently pulsing yellow-orange line
    that sweeps continuously between the reconstruction stages (3:34 PM ignition → 3:45 PM →
    5:00 PM → 5:30 PM → evening final footprint, official 1,052 acres), labelled on the terrain.
-4. **Spread-potential bands** — at the current timeline position, a minimum-travel-time model
-   propagates from the front and draws clean **+15 / +30 / +60 / +90 minute** iso-arrival
-   bands: anisotropic contour bands stretched downwind and along terrain, never circles.
-   Near horizons get solid outlines (higher confidence); +60/+90 render dashed and fainter
-   (lower confidence). Labelled *"Spread potential, not official perimeter."*
-5. **Spread pathways** — thin pale ribbons trace the model's fastest routes (canyon corridors,
-   upslope and downwind runs), explaining *why* the bands lean where they lean.
-6. **Structure-adjacent edges** — dashed boundary lines + faint bands where the footprint meets
-   the West Hills edge ("Structure-adjacent edge", from 3:45 PM) and the Hidden Hills north
-   edge ("Neighborhood edge risk", from 5:30 PM). No building damage is implied.
-7. **Driver panel** — Wind alignment / Slope effect / Fuel / Canyon channeling / Structure
-   adjacency as live High–Medium–Low meters, captioned with the model description.
-8. **Timeline** — play/pause, replay, stage-labeled scrubber (click to jump), 1x/5x/20x.
-   At the final stage the potential bands hide ("forward progress stopped") and the history +
+4. **One prediction zone** — at the current timeline position, a FARSITE/Huygens-style
+   minimum-travel-time model propagates from the front and draws a single
+   **"Likely spread in next 30 minutes"** extent: an anisotropic, terrain-aware gradient zone
+   (stronger orange near the front, softer toward the edge) under one crisp boundary —
+   stretched downwind/uphill, pinched at barriers, never a circle. When the front is running
+   extremely fast (head rate ≥ ~20 m/min), the model narrows to a **20-minute critical
+   interval** instead — still only one predicted extent at a time. On-terrain label:
+   *"Likely spread in next 30 minutes"*, sublabel *"Spread potential, not official perimeter"*.
+5. **Cause cues, kept thin** — faint wind-direction streamlines; 2–5 pale spread-pathway
+   ribbons along the model's lowest-cost routes, with at most two cause labels
+   ("Wind-driven spread", "Uphill slope influence", "Canyon channeling"); dashed
+   structure-edge lines ("Structure-edge resistance", "Neighborhood edge risk") where the
+   footprint meets neighborhoods — no building damage implied.
+6. **Driver panel** — Wind / Slope / Fuel / Canyon channeling / Structure-edge resistance as
+   live High–Medium–Low meters, captioned: *"Prediction uses wind, slope, fuel, canyon
+   alignment, and structure-edge resistance."*
+7. **Timeline** — play/pause, replay, stage-labeled scrubber (click to jump), 1x/5x/20x.
+   At the final stage the prediction hides ("forward progress stopped") and the history +
    final perimeter remain.
 
-## The spread-potential model
+## The spread model
 
-*Arrival-time surface based on wind, slope, fuel, canyon alignment, and structure adjacency.*
+A **FARSITE/Huygens-family fire-growth model** implemented as Finney-style **Minimum Travel
+Time** propagation (Dijkstra over a terrain cost grid) with an **elliptical spread kernel**:
 
 - ~7,700 terrain cells (70 m) cover the preserve and bordering neighborhoods. Elevation is an
   **approximated analytic surface** of the area's main landforms (northern ridge, Lasky Mesa,
   Castle Peak, Las Virgenes Creek canyon, the SW drainage) — no DEM download, no extra APIs.
-- Per-step speed = base dry-grass rate × dryness, plus wind-alignment, uphill, and
-  canyon-channeling bonuses, with a strong backing-fire penalty against the wind and a hard
-  barrier penalty inside developed blocks (WUI fringe slightly slowed). Dijkstra
-  (minimum-travel-time) propagation from the current front yields each cell's arrival time.
-- The raw grid is never shown: marching-squares contours + Chaikin smoothing produce the neat
-  bands; the Dijkstra predecessor tree produces the pathway ribbons. The model refreshes about
-  once a second as the timeline moves (~30 ms per refresh) and pauses at the final footprint.
-- Verified by node smoke tests: contour nesting, monotone growth, downwind-vs-upwind
-  anisotropy (~4.5×), barrier containment, and driver sanity.
+- Slope acts like added wind (Rothermel-style): an effective wind-slope vector sets each
+  cell's local head-spread direction; its magnitude drives the head rate and the ellipse
+  length-to-breadth (simplified after Anderson 1983). Rate at angle θ off the head follows the
+  rear-focus ellipse form R(θ) = R_head·(1−ε)/(1−ε·cosθ) — measured head/flank/back ≈
+  18.7 / 1.8 / 1.0 m/min in open grass. Canyon channeling multiplies speed along drainage
+  axes; developed blocks are near-barriers; the WUI fringe is slightly slowed.
+- The raw grid is never shown: marching-squares contours + Chaikin smoothing produce the dense
+  (~200-vertex) zone geometry, clamped so the visible boundary never dips behind the front;
+  the Dijkstra predecessor tree produces the pathway ribbons. The model refreshes about once a
+  second as the timeline moves (~25 ms per refresh) and pauses at the final footprint.
+- Verified by node smoke tests: kernel ratios, shell nesting, monotone growth, downwind
+  stretch vs upwind pinch, barrier containment, pathway/cause and driver sanity.
 
 ## Honesty & accuracy
 
@@ -94,12 +103,13 @@ This is a **communication tool, clearly labelled as a reconstruction with model 
   7:48 AM PT; final size 1,052 acres; location Victory Blvd west of Gilmore St.
 - **Stage polygons are reconstructed**, not surveyed perimeters; the final ring's area is tuned
   to the official 1,052 acres, with strict ring nesting verified by script.
-- **Future bands are explicitly model-based potential** — bands with confidence styling, never
-  one deterministic "future perimeter", hidden once the reconstruction ends.
+- **The predicted zone is explicitly model-based potential** — labelled *"Spread potential,
+  not official perimeter"* on the terrain and in the panel, hidden once the reconstruction
+  ends. It is a potential extent, not a deterministic future perimeter.
 - Intermediate acreages are never displayed; only stage names, times, and an explicitly
   "(reconstructed)" percent readout.
-- On-screen disclaimer: *"Observed and reconstructed spread zones with model-based
-  spread-potential intervals. Not an official perimeter or emergency guidance."*
+- On-screen disclaimer: *"Observed and reconstructed spread zones with model-based spread
+  potential. Not an official perimeter. Not emergency guidance."*
 
 ## Tech
 

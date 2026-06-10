@@ -10,6 +10,7 @@ import {
   DISCLAIMER,
 } from './data/kennethFacts';
 import { SPREAD_STAGES, STRUCTURE_EDGES } from './data/kennethReconstruction';
+import { PREDICTION_ZONE } from './data/spreadModelConfig';
 import {
   interpolateRings,
   prepareTransition,
@@ -97,7 +98,11 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
   const startTime = stageTimes[0];
   const endTime = stageTimes[stageTimes.length - 1];
   const clock = useAnimationClock(startTime, endTime);
-  const [model, setModel] = useState<ModelSummary>({ drivers: null, predictionActive: true });
+  const [model, setModel] = useState<ModelSummary>({
+    drivers: null,
+    predictionActive: true,
+    horizonMinutes: PREDICTION_ZONE.primaryMinutes,
+  });
 
   const timelineStages = useMemo<TimelineStage[]>(
     () =>

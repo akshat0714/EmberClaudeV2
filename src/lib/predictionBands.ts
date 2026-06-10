@@ -9,7 +9,7 @@
  */
 import type { ArrivalField } from './arrivalTimeModel';
 import { cellLatLng } from './arrivalTimeModel';
-import { ringCentroid, type LatLng } from './interpolatePolygon';
+import { pointInRing, resampleRing, ringCentroid, type LatLng } from './interpolatePolygon';
 
 const M_PER_DEG_LAT = 111_320;
 const M_PER_DEG_LNG = 92_100;
@@ -190,7 +190,8 @@ export function extractContour(field: ArrivalField, levelMinutes: number): LatLn
     })),
     2,
   );
-  return decimate(ring, 150);
+  // Dense vertices keep the draped boundary following the 3D terrain.
+  return decimate(ring, 220);
 }
 
 /** One round of corner-cutting per iteration; keeps closed rings smooth. */
@@ -366,4 +367,116 @@ export function leadingPoint(ring: LatLng[], bearingDeg: number): LatLng {
     }
   }
   return best;
+}
+
+/**
+ * Keep a contour from dipping inside the front ring. Where the model says
+ * spread potential is ~zero (rear/barrier edges), grid quantization can put
+ * the contour slightly inside the smooth front polygon; semantically the zone
+ * should collapse ONTO the front there, so offending vertices snap to the
+ * nearest front point nudged `pushM` outward, followed by a light smoothing
+ * pass to remove clamp zigzags.
+ */
+export function clampRingOutside(ring: LatLng[], keepOut: LatLng[], pushM = 10): LatLng[] {
+  const refPts = resampleRing(keepOut, 128);
+  const center = ringCentroid(keepOut);
+  let changed = false;
+  const clamped = ring.map((p) => {
+    if (!pointInRing(p, keepOut)) return p;
+    changed = true;
+    let best = refPts[0];
+    let bestD = Infinity;
+    for (const q of refPts) {
+      const dLat = (q.lat - p.lat) * M_PER_DEG_LAT;
+      const dLng = (q.lng - p.lng) * M_PER_DEG_LNG;
+      const d = dLat * dLat + dLng * dLng;
+      if (d < bestD) {
+        bestD = d;
+        best = q;
+      }
+    }
+    const outLat = (best.lat - center.lat) * M_PER_DEG_LAT;
+    const outLng = (best.lng - center.lng) * M_PER_DEG_LNG;
+    const len = Math.hypot(outLat, outLng) || 1;
+    return {
+      lat: best.lat + ((outLat / len) * pushM) / M_PER_DEG_LAT,
+      lng: best.lng + ((outLng / len) * pushM) / M_PER_DEG_LNG,
+    };
+  });
+  if (!changed) return ring;
+  return clamped.map((p, i) => {
+    const a = clamped[(i - 1 + clamped.length) % clamped.length];
+    const b = clamped[(i + 1) % clamped.length];
+    return { lat: (a.lat + 2 * p.lat + b.lat) / 4, lng: (a.lng + 2 * p.lng + b.lng) / 4 };
+  });
+}
+
+/** Offset a point by `meters` along a compass bearing. */
+export function offsetMeters(point: LatLng, bearingDeg: number, meters: number): LatLng {
+  const rad = (bearingDeg * Math.PI) / 180;
+  return {
+    lat: point.lat + (Math.cos(rad) * meters) / M_PER_DEG_LAT,
+    lng: point.lng + (Math.sin(rad) * meters) / M_PER_DEG_LNG,
+  };
+}
+
+export interface WindStream {
+  line: LatLng[];
+  /** Arrowhead at the downwind end: [left barb, tip, right barb]. */
+  arrow: LatLng[];
+}
+
+export interface WindStreamOptions {
+  cols: number;
+  rows: number;
+  spacingM: number;
+  lengthM: number;
+  arrowM: number;
+  arrowDeg: number;
+}
+
+/**
+ * Faint wind-direction streamlines: a small lattice of short arrows around
+ * `center`, aligned with the wind bearing. Streams whose midpoint falls
+ * inside `skipRing` (the burned front) are dropped to keep the map clean.
+ */
+export function buildWindStreams(
+  center: LatLng,
+  bearingDeg: number,
+  opts: WindStreamOptions,
+  skipRing?: LatLng[],
+): WindStream[] {
+  const rad = (bearingDeg * Math.PI) / 180;
+  const ax = Math.sin(rad); // along-wind unit (east, north)
+  const ay = Math.cos(rad);
+  const px = -ay; // perpendicular unit
+  const py = ax;
+  const toLatLng = (x: number, y: number): LatLng => ({
+    lat: center.lat + y / M_PER_DEG_LAT,
+    lng: center.lng + x / M_PER_DEG_LNG,
+  });
+
+  const streams: WindStream[] = [];
+  const barbRad = (opts.arrowDeg * Math.PI) / 180;
+  for (let row = 0; row < opts.rows; row++) {
+    for (let col = 0; col < opts.cols; col++) {
+      const along = (col - (opts.cols - 1) / 2) * opts.spacingM;
+      const across = (row - (opts.rows - 1) / 2) * opts.spacingM * 0.8;
+      const cx = ax * along + px * across;
+      const cy = ay * along + py * across;
+      const mid = toLatLng(cx, cy);
+      if (skipRing && pointInRing(mid, skipRing)) continue;
+      const half = opts.lengthM / 2;
+      const tipX = cx + ax * half;
+      const tipY = cy + ay * half;
+      const line = [toLatLng(cx - ax * half, cy - ay * half), toLatLng(tipX, tipY)];
+      const barb = (sign: 1 | -1): LatLng => {
+        const bx = -ax * Math.cos(barbRad) + sign * -px * Math.sin(barbRad);
+        const by = -ay * Math.cos(barbRad) + sign * -py * Math.sin(barbRad);
+        return toLatLng(tipX + bx * opts.arrowM, tipY + by * opts.arrowM);
+      };
+      streams.push({ line, arrow: [barb(1), toLatLng(tipX, tipY), barb(-1)] });
+    }
+  }
+  return streams;
 }
