@@ -10,20 +10,27 @@
  * checks against them use the live reconstruction model.
  *
  * Escape routes are hand-authored along real road alignments so the blue
- * path is always a physically possible way out:
+ * path is always a physically possible way out — and WHICH one is offered
+ * depends on what the person has with them:
  *
- *  - EAST (primary): up out of the canyon along E Las Virgenes Canyon Rd to
- *    the Valley Circle Blvd gate, then east on Vanowen St into West Hills —
- *    into the city, away from the WSW wind-driven spread.
- *  - SOUTH-WEST (backup): along E Las Virgenes Canyon Rd to the canyon
- *    junction, then south on Las Virgenes Canyon Rd to the trailhead gate
- *    toward Las Virgenes Rd, Calabasas.
+ *  - EAST (car / bike): up out of the canyon along E Las Virgenes Canyon Rd
+ *    to the Valley Circle Blvd gate, then east on Vanowen St into West
+ *    Hills — out by road, into the city, away from the WSW spread.
+ *  - SOUTH (on foot / disabled): the short open-space trail straight south,
+ *    perpendicular to the wind-driven spread axis, to a pickup point at the
+ *    Hidden Hills edge — minutes of crosswind walking that never heads
+ *    toward the fire, instead of a long road trek past its flank.
+ *  - SOUTH-WEST (backup, any mode): along E Las Virgenes Canyon Rd to the
+ *    canyon junction, then south on Las Virgenes Canyon Rd toward
+ *    Las Virgenes Rd, Calabasas.
  *
- * Both candidates are risk-scored against the live model every refresh; the
- * surviving lower-risk one is shown. A production deployment must replace
- * all of this with official evacuation zones, shelters, and road status.
+ * Candidates allowed for the person's mode are risk-scored against the live
+ * model every refresh; the surviving lower-risk one is shown. A production
+ * deployment must replace all of this with official evacuation zones,
+ * shelters, and road status.
  */
 import type { LatLng } from '../lib/interpolatePolygon';
+import type { TransportMode } from '../lib/rescueAssistant';
 
 export interface SafeDestination {
   id: string;
@@ -48,6 +55,8 @@ export interface RouteStep {
 export interface EscapeRoute {
   id: string;
   destination: SafeDestination;
+  /** Which transport modes can physically use this route (trails exclude cars). */
+  allowedModes: TransportMode[];
   /** Full road polyline from the simulated GPS position to the destination. */
   path: LatLng[];
   steps: RouteStep[];
@@ -76,6 +85,13 @@ const CALABASAS_STAGING: SafeDestination = {
   kind: 'safe-zone',
 };
 
+const HIDDEN_HILLS_PICKUP: SafeDestination = {
+  id: 'hidden-hills-pickup',
+  name: 'Pickup point — Hidden Hills north gate (simulated)',
+  position: { lat: 34.1672, lng: -118.685 },
+  kind: 'pickup-point',
+};
+
 /**
  * EAST: E Las Virgenes Canyon Rd climbs north-east out of the drainage,
  * swings east along the high ground north of the burn area, exits at the
@@ -96,6 +112,24 @@ const EAST_PATH: LatLng[] = [
   { lat: 34.1937, lng: -118.6515 },
   { lat: 34.1937, lng: -118.648 },
   { lat: 34.1937, lng: -118.645 },
+];
+
+/**
+ * SOUTH: the short open-space trail from the road straight south to the
+ * Hidden Hills edge — perpendicular to the wind-driven spread axis, so every
+ * step opens distance from the fire's path. Foot traffic only (gated trail);
+ * responders meet the person at the pickup point.
+ */
+const SOUTH_PATH: LatLng[] = [
+  HELP_GPS_POSITION,
+  { lat: 34.181, lng: -118.681 },
+  { lat: 34.1791, lng: -118.6818 },
+  { lat: 34.1772, lng: -118.6825 },
+  { lat: 34.1753, lng: -118.6831 },
+  { lat: 34.1734, lng: -118.6837 },
+  { lat: 34.1715, lng: -118.6842 },
+  { lat: 34.1696, lng: -118.6846 },
+  { lat: 34.1672, lng: -118.685 }, // Hidden Hills north gate
 ];
 
 /**
@@ -124,6 +158,7 @@ export const ESCAPE_ROUTES: EscapeRoute[] = [
   {
     id: 'east-west-hills',
     destination: WEST_HILLS_PICKUP,
+    allowedModes: ['car', 'bike', 'foot'],
     path: EAST_PATH,
     summary:
       'NORTH-EAST up E Las Virgenes Canyon Rd, then EAST to the Valley Circle Blvd gate and EAST on Vanowen St into West Hills',
@@ -159,8 +194,40 @@ export const ESCAPE_ROUTES: EscapeRoute[] = [
     ],
   },
   {
+    id: 'south-hidden-hills',
+    destination: HIDDEN_HILLS_PICKUP,
+    allowedModes: ['foot'],
+    path: SOUTH_PATH,
+    summary:
+      'SOUTH on the open-space trail, straight out of the fire’s path, to the pickup point at the Hidden Hills north gate',
+    steps: [
+      {
+        road: 'Open-space trail',
+        direction: 'SOUTH',
+        arrow: '↓',
+        text: 'Head SOUTH on the trail, directly out of the fire’s path — the wind is pushing the fire west, away from this line.',
+        fromIndex: 0,
+      },
+      {
+        road: 'Open-space trail',
+        direction: 'SOUTH',
+        arrow: '↓',
+        text: 'Keep SOUTH toward the Hidden Hills edge — every step opens distance from the fire.',
+        fromIndex: 4,
+      },
+      {
+        road: 'Hidden Hills north gate',
+        direction: 'SOUTH',
+        arrow: '↓',
+        text: 'The pickup point is just ahead at the gate — responders meet you there.',
+        fromIndex: 7,
+      },
+    ],
+  },
+  {
     id: 'southwest-calabasas',
     destination: CALABASAS_STAGING,
+    allowedModes: ['car', 'bike', 'foot'],
     path: SOUTHWEST_PATH,
     summary:
       'SOUTH-WEST along E Las Virgenes Canyon Rd to the canyon junction, then SOUTH on Las Virgenes Canyon Rd toward Calabasas',

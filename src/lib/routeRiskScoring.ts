@@ -96,11 +96,14 @@ export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot
     const insideFire = pointInRing(p, snapshot.frontRing);
     const insideEnvelope =
       snapshot.envelopeRing !== null && pointInRing(p, snapshot.envelopeRing);
+    // Distance of THIS sample to the risk area: the soft penalties below
+    // must stop accruing once the route has genuinely pulled away (a route
+    // that starts near the fire and then opens distance is exactly what we
+    // want, and must not keep paying for its first kilometre).
+    let envDistNow = frontDist;
     if (snapshot.envelopeRing) {
-      minEnvelopeDistM = Math.min(
-        minEnvelopeDistM,
-        insideEnvelope ? 0 : distToRingM(p, snapshot.envelopeRing),
-      );
+      envDistNow = insideEnvelope ? 0 : distToRingM(p, snapshot.envelopeRing);
+      minEnvelopeDistM = Math.min(minEnvelopeDistM, envDistNow);
     }
 
     if (insideFire) {
@@ -129,11 +132,10 @@ export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot
     }
 
     // soft factors, evaluated near the risk area only
-    const envDist = snapshot.envelopeRing ? minEnvelopeDistM : frontDist;
-    if (!insideEnvelope && envDist < 500) {
-      nearCount += 1 - envDist / 500;
+    if (!insideEnvelope && envDistNow < 500) {
+      nearCount += 1 - envDistNow / 500;
     }
-    if (envDist < 1500 && i + 1 < samples.length) {
+    if (envDistNow < 1500 && i + 1 < samples.length) {
       for (const tendril of snapshot.tendrils) {
         if (distToPolylineM(p, tendril) < HELP_CONFIG.tendrilBufferM) {
           tendrilHits++;
@@ -142,14 +144,16 @@ export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot
       }
       const travel = bearingDeg(p, samples[i + 1]);
       const toFire = bearingDeg(p, snapshot.fireCentroid);
-      const diff = Math.abs(((travel - toFire + 540) % 360) - 180);
-      if (diff > 135) towardFireSum += 1; // heading within ±45° of the fire
+      // Folded angle between travel and the fire direction: 0° = walking
+      // straight AT the fire, 180° = straight away from it.
+      const offFire = Math.abs(((travel - toFire + 540) % 360) - 180);
+      if (offFire < 45) towardFireSum += 1; // heading within ±45° of the fire
       // Fleeing DOWNWIND means running where the wind is carrying the fire —
-      // the head of a wind-driven fire outruns people. Penalize alignment
-      // between travel and the spread bearing while near the risk area.
-      const windAngle =
-        ((((travel - snapshot.windBearingDeg + 540) % 360) - 180) * Math.PI) / 180;
-      downwindSum += Math.max(0, Math.cos(windAngle));
+      // the head of a wind-driven fire outruns people. Penalize travel
+      // tightly aligned with the spread bearing (within ~45°); crosswind
+      // escape, the recommended direction, stays free.
+      const offDeg = Math.abs(((travel - snapshot.windBearingDeg + 540) % 360) - 180);
+      downwindSum += Math.max(0, 1 - offDeg / 45);
       canyonSum += grid.canyon[cellIndexAt(grid, p.lat, p.lng)];
     }
   }

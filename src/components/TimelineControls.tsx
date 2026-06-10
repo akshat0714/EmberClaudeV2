@@ -1,8 +1,6 @@
 import type { CSSProperties } from 'react';
 import { formatPacific } from '../lib/timeUtils';
 
-const SPEEDS = [1, 5, 20];
-
 export interface TimelineStage {
   name: string;
   timeLabel: string;
@@ -11,7 +9,6 @@ export interface TimelineStage {
 
 interface TimelineControlsProps {
   playing: boolean;
-  speed: number;
   time: number;
   startTime: number;
   endTime: number;
@@ -20,12 +17,10 @@ interface TimelineControlsProps {
   onToggle: () => void;
   onReplay: () => void;
   onSeek: (t: number) => void;
-  onSpeedChange: (multiplier: number) => void;
 }
 
 export default function TimelineControls({
   playing,
-  speed,
   time,
   startTime,
   endTime,
@@ -34,7 +29,6 @@ export default function TimelineControls({
   onToggle,
   onReplay,
   onSeek,
-  onSpeedChange,
 }: TimelineControlsProps) {
   const span = Math.max(endTime - startTime, 1);
   const progress = (time - startTime) / span;
@@ -117,18 +111,6 @@ export default function TimelineControls({
               </button>
             ))}
           </div>
-        </div>
-
-        <div className="speed-group" role="group" aria-label="Playback speed">
-          {SPEEDS.map((s) => (
-            <button
-              key={s}
-              className={s === speed ? 'speed-btn active' : 'speed-btn'}
-              onClick={() => onSpeedChange(s)}
-            >
-              {s}x
-            </button>
-          ))}
         </div>
 
         <div className="timestamp">

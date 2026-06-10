@@ -228,6 +228,13 @@ export const HELP_CONFIG = {
     canyon: 1.5,
     /** Penalty per km spent escaping out of the risk area at the start. */
     escapePerKm: 10,
+    /**
+     * Time-exposure multiplier on route duration when CHOOSING a route:
+     * slower travellers should take the shortest way out of the risk area,
+     * not the nicest road — a long trek past the fire's flank is wrong for
+     * someone on foot even if a car would clear it in minutes.
+     */
+    exposureByMode: { car: 1, bike: 1.3, foot: 2.5 },
   },
   /** A destination must keep these margins from the modeled risk. */
   destination: {
@@ -239,40 +246,34 @@ export const HELP_CONFIG = {
     carMps: 10, // ~36 km/h on the dirt road / evacuation traffic
     bikeMps: 4.2, // ~15 km/h
     footMps: 1.4, // ~5 km/h brisk walk
-    limitedMps: 0.9, // disability / reduced mobility
+    limitedMps: 1.1, // disability / reduced mobility (~4 km/h)
   },
   /**
-   * Shared world clock: the fire and the person run on one clock. While the
-   * person is replying in chat the world runs in real time (1 fire-minute =
-   * 1 real minute); once they are moving it fast-forwards (1 fire-minute =
-   * 1 real second). After arrival the app's normal demo speed resumes.
+   * Shared world clock: the fire and the person run on one clock. Whenever
+   * the person is talking with the assistant (speaking, typing, or hearing
+   * a reply) the fire HOLDS STILL so the exchange can be followed; once
+   * they are moving it fast-forwards (1 fire-minute = 1 real second), and
+   * after arrival the app's normal demo speed resumes.
    */
   clock: {
     fastRate: 60,
-    realRate: 1,
-    chatGraceMs: 6000,
+    holdRate: 0,
+    holdAfterChatMs: 6000,
   },
 };
 
-/** Exact Help-flow wording (decision-support honesty). */
+/** Exact Help-flow wording. */
 export const HELP_WORDING = {
   title: 'Evacuation help',
   buttonIdle: 'Help — I need to evacuate',
   buttonActive: 'End help session',
   locating: 'Locating your GPS position…',
-  located: 'GPS position found',
   statusAsk: 'Waiting for your reply…',
   statusRouting: 'Choosing the safest way out…',
-  statusSafe: 'Route is clear of the modeled fire zones',
-  statusCaution: 'Route passes near the modeled fire-risk area — keep moving',
-  statusNone:
-    'No modeled low-risk route found. Follow official evacuation instructions immediately.',
-  arrived: 'Reached the safe zone (simulated) — clear of the modeled fire area.',
-  modelBased: 'Model-based guidance. Follow local authorities.',
-  notOfficial: 'Not official emergency guidance.',
-  emergency: 'If you are in immediate danger, call 911 and follow official alerts.',
-  simulatedNote:
-    'Demo: the GPS fix, the person and the safe zones are simulated; the fire is the live model.',
+  statusSafe: 'Route is clear of the fire zones',
+  statusCaution: 'Route passes near the fire-risk area — keep moving',
+  statusNone: 'No low-risk route found. Follow official evacuation instructions immediately.',
+  arrived: 'Reached the safe zone — clear of the fire area.',
 };
 
 export const STRUCTURE_EDGE_STYLE = {

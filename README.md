@@ -54,33 +54,37 @@ One press of **"Help — I need to evacuate"** runs the whole rescue story:
    through Upper Las Virgenes Canyon — about 1 km downwind of the ignition point, directly in
    the modeled spread path. A **clear blue dot** (halo, white ring, heading wedge, "You" pin)
    appears and the camera flies to it.
-2. **Ask** — the assistant asks what the person has with them: **a car, a bike, on foot — or
-   nothing — and whether a disability slows them down** (quick replies or free text). The
-   answer is parsed locally; replies are phrased by **Gemini** when `VITE_GEMINI_API_KEY` is
-   set, with a deterministic built-in fallback so the demo never blocks. The LLM only writes
-   text — routing and safety always come from the risk model. The resource sets the speed
-   (car ~36 km/h, bike ~15 km/h, foot ~5 km/h, limited mobility ~3 km/h).
-3. **Guide, qualitatively** — two hand-authored escape routes along real road alignments
-   (EAST: up E Las Virgenes Canyon Rd to the Valley Circle Blvd gate, then EAST on Vanowen St
-   into West Hills; SOUTH-WEST: down the canyon to Las Virgenes Canyon Rd toward Calabasas)
-   are **risk-scored against the live fire model** — anything crossing the fire, hugging the
-   front, fleeing downwind, or re-entering the predicted envelope after the initial escape
-   window is rejected. The best survivor draws as a **bright blue path** to a
-   **green-highlighted safe zone**, and the card + assistant give directions the way a person
-   needs them: a big compass arrow, *"Head NORTH-EAST"*, the road name, and a step list with
-   ETA and a progress bar.
-4. **Escape** — the simulated person responds perfectly: they follow the blue path in world
-   time. While they reply the world runs in **real time** (1 fire-minute = 1 real minute);
-   while they move it fast-forwards (**1 fire-minute = 1 real second**) — chatting genuinely
-   costs progress. Routes and the destination are re-validated on every model refresh; if the
-   spread cuts the route the backup is chosen and explained in chat. They make it out to the
-   safe zone, and the fire timeline keeps playing.
+2. **Ask, by voice** — the assistant SPEAKS in a calm, natural voice and asks what the person
+   has with them: **a car, a bike, on foot — and whether a disability slows them down**. The
+   person can answer by **talking (tap the mic)**, by quick replies, or by typing. Replies are
+   phrased by **Gemini** when `VITE_GEMINI_API_KEY` is set, with a deterministic built-in
+   fallback, and every reply is spoken aloud (Web Speech, all in-browser; a mute toggle sits
+   on the card). The LLM only writes text — routing and safety always come from the risk
+   model.
+3. **The way out depends on what you have** —
+   - **Car / bike** → drive or ride out by road: NORTH-EAST up E Las Virgenes Canyon Rd to the
+     Valley Circle Blvd gate, then EAST on Vanowen St into West Hills (≈7 min by car, ≈15 by
+     bike).
+   - **On foot / disabled** → the short open-space trail straight SOUTH, perpendicular to the
+     wind-driven spread axis, to a pickup point at the Hidden Hills edge where responders meet
+     them (≈22 min on foot, ≈28 with limited mobility) — never a long trek past the fire's
+     flank.
+   - A SOUTH-WEST canyon route to Calabasas stays as the backup for every mode.
+   Candidates allowed for the person's mode are **risk-scored against the live fire model**
+   (fire crossings, front buffer, downwind flight, predicted-envelope re-entry, plus a
+   time-exposure weight so slower travellers get the shortest way out). The winner draws as a
+   **bright blue path** to a **green safe zone**, with a big compass arrow, the road name, a
+   step list, ETA and progress.
+4. **Escape, with the fire held while you talk** — whenever the person is speaking, typing,
+   or hearing a reply, **the fire stands still** so the exchange can be followed; once they
+   move, the world fast-forwards (1 fire-minute = 1 real second). The simulated person
+   responds perfectly and follows the blue path to the safe zone; routes and the destination
+   are re-validated on every model refresh, and if the spread cuts the route the backup is
+   chosen and explained. After arrival the fire timeline plays on.
 
-**Honesty by construction** — the GPS fix, person and destinations are labelled *(simulated)*;
-the card always shows *"Model-based guidance. Follow local authorities."* and *"Not official
-emergency guidance."*; when every candidate is rejected the app says *"No modeled low-risk
-route found. Follow official evacuation instructions immediately."* instead of faking a route.
-Production use would require official evacuation zones, road closures, shelters and alerts.
+When every candidate is rejected the app says *"No low-risk route found. Follow official
+evacuation instructions immediately."* instead of faking a route. Production use would
+require official evacuation zones, road closures, shelters and alerts.
 
 The full rescue loop is covered by a node smoke test that replays the fire and walks the
 person along the chosen path for every resource type:
@@ -118,7 +122,7 @@ npx tsx scripts/rescueSmoke.ts
 6. **Driver panel** — Wind / Slope / Fuel / Canyon channeling / Structure-edge resistance as
    live High–Medium–Low meters, captioned: *"Prediction uses wind, slope, fuel, canyon
    alignment, and structure-edge resistance."*
-7. **Timeline** — play/pause, replay, stage-labeled scrubber (click to jump), 1x/5x/20x.
+7. **Timeline** — play/pause, replay, stage-labeled scrubber (click to jump).
    At the final stage the prediction hides ("forward progress stopped") and the history +
    final perimeter remain.
 
@@ -198,6 +202,7 @@ src/
   lib/rescueAssistant.ts         resource parsing + Gemini/LLM-phrased replies
   lib/routeRiskScoring.ts        route sampling vs front/envelope/wind, scoring
   lib/fireRiskGeometry.ts        distances, path projection/arc movement, shapes
+  lib/voice.ts                   calm spoken replies + tap-to-talk mic (Web Speech)
   lib/userLocation.ts            LocationFix model for the simulated GPS
   lib/predictionBands.ts         marching-squares contours, dashes, pathways
   lib/spreadDrivers.ts           High/Medium/Low driver summary for the panel

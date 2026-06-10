@@ -31,11 +31,9 @@ const DEMO_DURATION_MS = 60_000;
 function useAnimationClock(startTime: number, endTime: number) {
   const [time, setTime] = useState(startTime);
   const [playing, setPlaying] = useState(true);
-  const [speed, setSpeed] = useState(1);
   const stateRef = useRef({
     time: startTime,
     playing: true,
-    speed: 1,
     rateOverride: null as number | null,
   });
 
@@ -49,9 +47,9 @@ function useAnimationClock(startTime: number, endTime: number) {
       last = now;
       if (s.playing) {
         // rateOverride (fire-ms per real-ms) couples the world clock to the
-        // rescue sim: 1 = real time while the person replies, 60 = 1 fire
-        // minute per real second otherwise.
-        const rate = s.rateOverride ?? (span / DEMO_DURATION_MS) * s.speed;
+        // rescue sim: 0 freezes the fire while the person is talking, 60 =
+        // 1 fire minute per real second while they move.
+        const rate = s.rateOverride ?? span / DEMO_DURATION_MS;
         s.time = Math.min(endTime, s.time + dt * rate);
         if (s.time >= endTime) {
           s.playing = false;
@@ -93,12 +91,7 @@ function useAnimationClock(startTime: number, endTime: number) {
     setTime(v);
   };
 
-  const changeSpeed = (multiplier: number) => {
-    stateRef.current.speed = multiplier;
-    setSpeed(multiplier);
-  };
-
-  return { time, playing, speed, toggle, replay, seek, changeSpeed, setRateOverride };
+  return { time, playing, toggle, replay, seek, setRateOverride };
 }
 
 export default function App() {
@@ -201,7 +194,6 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
 
       <TimelineControls
         playing={clock.playing}
-        speed={clock.speed}
         time={clock.time}
         startTime={startTime}
         endTime={endTime}
@@ -210,7 +202,6 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
         onToggle={clock.toggle}
         onReplay={clock.replay}
         onSeek={clock.seek}
-        onSpeedChange={clock.changeSpeed}
       />
     </div>
   );

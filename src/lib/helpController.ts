@@ -98,7 +98,12 @@ export interface HelpActions {
   toggle: () => void;
   sendChatMessage: (text: string) => void;
   chooseResource: (choice: ResourceChoice) => void;
-  setChatFocus: (focused: boolean) => void;
+  /**
+   * Mark an interaction as active (typing, speaking into the mic, or the
+   * assistant's voice playing). While anything is active — and for a short
+   * hold afterwards — the fire stands still.
+   */
+  setInteracting: (active: boolean) => void;
 }
 
 const INITIAL_STATE: HelpState = {
@@ -158,28 +163,37 @@ function remainingPath(path: LatLng[], from: LatLng | null): LatLng[] {
 }
 
 /**
- * Pick the best escape route against the live model: hard-rejected routes
- * and threatened destinations are out; the lowest risk-score survivor wins.
+ * Pick the best escape route for what the person HAS: routes their mode
+ * cannot use (a car on a foot trail) are out, hard-rejected routes and
+ * threatened destinations are out, and among the survivors the risk score
+ * plus a time-exposure weighting decides — so a car drives out by road
+ * while someone on foot takes the shortest path out of the fire's way.
  */
 export function selectEscapeRoute(
   snapshot: FireRiskSnapshot,
   from: LatLng | null,
   mps: number,
+  mode: TransportMode,
 ): { route: EscapeRoute; path: LatLng[]; riskStatus: 'safe' | 'caution' } | null {
   let best: { route: EscapeRoute; path: LatLng[]; riskStatus: 'safe' | 'caution'; score: number } | null =
     null;
+  const exposure = HELP_CONFIG.score.exposureByMode[mode] ?? 1;
   for (const route of ESCAPE_ROUTES) {
+    if (!route.allowedModes.includes(mode)) continue;
     if (!destinationClear(route.destination, snapshot)) continue;
     const path = remainingPath(route.path, from);
     if (path.length < 2) continue;
     const distanceM = pathLengthM(path);
+    const durationS = distanceM / mps;
     const scored = scoreRoute(
-      { destination: route.destination, path, distanceM, durationS: distanceM / mps, source: 'authored' },
+      { destination: route.destination, path, distanceM, durationS, source: 'authored' },
       snapshot,
     );
     if (scored.status === 'rejected') continue;
-    if (!best || scored.score < best.score) {
-      best = { route, path, riskStatus: scored.status, score: scored.score };
+    const selectionScore =
+      scored.score + (durationS / 60) * (exposure - 1) * HELP_CONFIG.score.perMinute;
+    if (!best || selectionScore < best.score) {
+      best = { route, path, riskStatus: scored.status, score: selectionScore };
     }
   }
   return best ? { route: best.route, path: best.path, riskStatus: best.riskStatus } : null;
@@ -200,7 +214,8 @@ interface ControllerRefs {
   announcedNoRoute: boolean;
   locatingTimer: number;
   lastChatAt: number;
-  chatFocused: boolean;
+  /** Number of currently-active interactions (typing / mic / voice reply). */
+  interactCount: number;
   chatBusy: boolean;
   moveCarryM: number;
   /** Arc length travelled along the active guidance path, metres. */
@@ -229,7 +244,7 @@ export function useHelpController(
     announcedNoRoute: false,
     locatingTimer: 0,
     lastChatAt: 0,
-    chatFocused: false,
+    interactCount: 0,
     chatBusy: false,
     moveCarryM: 0,
     alongM: 0,
@@ -294,6 +309,7 @@ export function useHelpController(
         routeSummary: guidance?.route.summary ?? null,
         currentStep: step?.text ?? null,
         destinationName: guidance?.route.destination.name ?? null,
+        destinationKind: guidance?.route.destination.kind ?? null,
         etaMinutes: remaining.remainingS !== null ? remaining.remainingS / 60 : null,
         distanceKm: remaining.remainingM !== null ? remaining.remainingM / 1000 : null,
         routeStatus: guidance ? guidance.riskStatus : 'none',
@@ -317,9 +333,9 @@ export function useHelpController(
   const chooseRoute = useCallback(
     (announceEvent: AssistantEvent | null): boolean => {
       const r = refs.current;
-      if (!r.fix || !r.snapshot) return false;
+      if (!r.fix || !r.snapshot || !r.mode) return false;
       const mps = movementMps(r.mode, r.accessibilityNote);
-      const choice = selectEscapeRoute(r.snapshot, r.fix, mps);
+      const choice = selectEscapeRoute(r.snapshot, r.fix, mps, r.mode);
       if (!choice) {
         r.guidance = null;
         r.moving = false;
@@ -414,6 +430,7 @@ export function useHelpController(
           chatBusy: false,
           moveCarryM: 0,
           alongM: 0,
+          interactCount: 0,
         });
         setState({ ...INITIAL_STATE });
         return;
@@ -422,14 +439,15 @@ export function useHelpController(
       r.arrived = false;
       r.moveCarryM = 0;
       r.alongM = 0;
+      r.interactCount = 0;
       // Restart the shared world clock at ignition so the rescue plays out
-      // against the full fire timeline.
+      // against the full fire timeline; it holds still while we talk.
       restartWorldRef.current();
       setState({
         ...INITIAL_STATE,
         enabled: true,
         status: 'locating',
-        clockRate: HELP_CONFIG.clock.realRate,
+        clockRate: HELP_CONFIG.clock.holdRate,
       });
       r.status = 'locating';
       r.locatingTimer = window.setTimeout(() => {
@@ -444,9 +462,10 @@ export function useHelpController(
     chooseResource: (choice) => {
       handleUserText(RESOURCE_PHRASES[choice]);
     },
-    setChatFocus: (focused) => {
-      refs.current.chatFocused = focused;
-      if (focused) refs.current.lastChatAt = Date.now();
+    setInteracting: (active) => {
+      const r = refs.current;
+      r.interactCount = Math.max(0, r.interactCount + (active ? 1 : -1));
+      r.lastChatAt = Date.now();
     },
   };
 
@@ -531,8 +550,10 @@ export function useHelpController(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [worldTimeMs]);
 
-  // Shared world-clock rate: real time while the person is replying,
-  // fast-forward while they move, normal demo playback once they are safe.
+  // Shared world-clock rate: the fire HOLDS STILL while the person is
+  // talking (speaking, typing, or hearing the assistant) and for a short
+  // moment after; it fast-forwards while they move, and returns to the
+  // app's normal playback once they are safe.
   useEffect(() => {
     if (!state.enabled) return;
     const compute = () => {
@@ -541,18 +562,19 @@ export function useHelpController(
       if (r.arrived) {
         rate = null; // back to the app's default playback
       } else {
-        const chatting =
+        const talking =
           r.status === 'locating' ||
           r.status === 'need-resource' ||
-          r.chatFocused ||
+          r.status === 'routing' ||
+          r.interactCount > 0 ||
           r.chatBusy ||
-          Date.now() - r.lastChatAt < HELP_CONFIG.clock.chatGraceMs;
-        rate = chatting ? HELP_CONFIG.clock.realRate : HELP_CONFIG.clock.fastRate;
+          Date.now() - r.lastChatAt < HELP_CONFIG.clock.holdAfterChatMs;
+        rate = talking ? HELP_CONFIG.clock.holdRate : HELP_CONFIG.clock.fastRate;
       }
       setState((s) => (s.clockRate === rate ? s : { ...s, clockRate: rate }));
     };
     compute();
-    const id = window.setInterval(compute, 1000);
+    const id = window.setInterval(compute, 400);
     return () => window.clearInterval(id);
   }, [state.enabled]);
 

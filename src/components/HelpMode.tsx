@@ -1,15 +1,25 @@
 /**
- * The Help flow UI: one clear SOS-style button, then a single tidy card
- * that walks through the rescue — locating the GPS position, asking what
- * the person has with them (quick replies + free text + LLM-phrased
- * answers), then the qualitative directions: a big compass arrow, the road
- * to follow, the step list, ETA and a progress bar to the safe zone.
- * Honest by construction: simulated/model-based disclaimers in every state.
+ * The Help flow UI: one clear SOS-style button, then a single tidy card —
+ * locating the GPS position, the resource question, then the directions:
+ * a big compass arrow, the road to follow, the step list, ETA and progress.
+ *
+ * The assistant is voice-first: every reply is spoken aloud in a calm
+ * voice, and the mic button lets the person answer by talking (free text
+ * and quick replies remain as fallbacks). Whenever the person is speaking,
+ * typing, or hearing a reply, the fire holds still so the exchange can be
+ * followed; it resumes once they are moving.
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { HELP_LOCATION_DETAIL, HELP_LOCATION_LABEL } from '../data/helpScenario';
 import { HELP_WORDING } from '../data/spreadModelConfig';
 import type { HelpActions, HelpState } from '../lib/helpController';
+import {
+  isSpeechInputSupported,
+  isSpeechOutputSupported,
+  speakText,
+  startSpeechInput,
+  stopSpeaking,
+} from '../lib/voice';
 
 function formatEta(remainingS: number | null): string {
   if (remainingS === null) return '—';
@@ -40,7 +50,6 @@ export default function HelpMode({
       <button
         className={state.enabled ? 'help-toggle glass active' : 'help-toggle glass'}
         onClick={actions.toggle}
-        title="Simulated rescue flow — model-based guidance, not official emergency guidance"
       >
         <span className="help-toggle-dot" />
         {state.enabled ? HELP_WORDING.buttonActive : HELP_WORDING.buttonIdle}
@@ -52,12 +61,74 @@ export default function HelpMode({
 
 function HelpCard({ state, actions }: { state: HelpState; actions: HelpActions }) {
   const [draft, setDraft] = useState('');
+  const [voiceOn, setVoiceOn] = useState(isSpeechOutputSupported());
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState('');
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const stopListeningRef = useRef<(() => void) | null>(null);
+  const cancelSpeechRef = useRef<(() => void) | null>(null);
+  const lastSpokenRef = useRef(-1);
+  const micSupported = isSpeechInputSupported();
 
   useEffect(() => {
     const el = messagesRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [state.messages.length, state.chatBusy]);
+  }, [state.messages.length, state.chatBusy, interim]);
+
+  // Speak each new assistant reply in the calm voice; the fire holds still
+  // while the voice is playing.
+  useEffect(() => {
+    const messages = state.messages;
+    const last = messages.length - 1;
+    if (last < 0 || messages[last].role !== 'assistant') return;
+    if (last <= lastSpokenRef.current) return;
+    lastSpokenRef.current = last;
+    if (!voiceOn) return;
+    cancelSpeechRef.current?.(); // settle any reply still playing
+    cancelSpeechRef.current = speakText(messages[last].text, {
+      onStart: () => actions.setInteracting(true),
+      onEnd: () => actions.setInteracting(false),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.messages, voiceOn]);
+
+  // Stop audio cleanly when the card closes.
+  useEffect(
+    () => () => {
+      stopListeningRef.current?.();
+      cancelSpeechRef.current?.();
+      stopSpeaking();
+    },
+    [],
+  );
+
+  const toggleMic = () => {
+    if (listening) {
+      stopListeningRef.current?.();
+      return;
+    }
+    cancelSpeechRef.current?.(); // never transcribe our own voice
+    stopListeningRef.current = startSpeechInput({
+      onInterim: setInterim,
+      onFinal: (text) => actions.sendChatMessage(text),
+      onStateChange: (on) => {
+        setListening(on);
+        actions.setInteracting(on);
+        if (!on) {
+          setInterim('');
+          stopListeningRef.current = null;
+        }
+      },
+    });
+  };
+
+  const toggleVoice = () => {
+    if (voiceOn) {
+      cancelSpeechRef.current?.();
+      stopSpeaking();
+    }
+    setVoiceOn(!voiceOn);
+  };
 
   const { guidance } = state;
   const locating = state.status === 'locating';
@@ -78,7 +149,6 @@ function HelpCard({ state, actions }: { state: HelpState; actions: HelpActions }
     statusText = HELP_WORDING.statusNone;
   }
 
-  const userInDanger = state.userRisk === 'in-fire' || state.userRisk === 'near-front';
   const activeStep = guidance ? guidance.route.steps[state.activeStepIndex] : null;
   const progress =
     guidance && state.remainingM !== null && guidance.totalM > 0
@@ -98,6 +168,14 @@ function HelpCard({ state, actions }: { state: HelpState; actions: HelpActions }
       <h3>
         {HELP_WORDING.title}
         <span className="help-sim-tag">simulated</span>
+        <button
+          className={voiceOn ? 'help-voice-toggle on' : 'help-voice-toggle'}
+          onClick={toggleVoice}
+          title={voiceOn ? 'Mute the assistant voice' : 'Unmute the assistant voice'}
+          aria-label={voiceOn ? 'Mute voice' : 'Unmute voice'}
+        >
+          {voiceOn ? '🔊' : '🔇'}
+        </button>
       </h3>
 
       {locating ? (
@@ -122,9 +200,6 @@ function HelpCard({ state, actions }: { state: HelpState; actions: HelpActions }
           <span className="help-status-dot" />
           {statusText}
         </p>
-      )}
-      {userInDanger && state.status !== 'arrived' && (
-        <p className="help-danger-note">{HELP_WORDING.emergency}</p>
       )}
 
       {guidance && activeStep && state.status !== 'arrived' && (
@@ -177,19 +252,19 @@ function HelpCard({ state, actions }: { state: HelpState; actions: HelpActions }
         <div className="help-arrived">
           <span aria-hidden="true">✓</span>
           <span>
-            Made it out — <strong>{guidance.route.destination.name}</strong>. Clear of the
-            modeled fire area.
+            Made it out — <strong>{guidance.route.destination.name}</strong>. Clear of the fire
+            area.
           </span>
         </div>
       )}
 
-      <p className="help-clock-note">
-        {state.clockRate === 1
-          ? '⏱ World running in real time while you reply'
-          : state.clockRate === null
-            ? '▶ Normal playback'
-            : '⏩ World fast-forwarding (1 min = 1 s) while you move'}
-      </p>
+      {state.clockRate !== null && (
+        <p className="help-clock-note">
+          {state.clockRate === 0
+            ? '⏸ Fire holds while you talk'
+            : '⏩ Simulating the escape — 1 fire-minute per second'}
+        </p>
+      )}
 
       <div className="help-chat">
         <div className="help-msgs" ref={messagesRef}>
@@ -198,6 +273,7 @@ function HelpCard({ state, actions }: { state: HelpState; actions: HelpActions }
               {m.text}
             </div>
           ))}
+          {listening && interim && <div className="help-msg user interim">{interim}</div>}
           {state.chatBusy && <div className="help-msg assistant typing">…</div>}
         </div>
         {state.status === 'need-resource' && state.mode === null && !state.chatBusy && (
@@ -209,27 +285,39 @@ function HelpCard({ state, actions }: { state: HelpState; actions: HelpActions }
           </div>
         )}
         <form className="help-input" onSubmit={submit}>
+          {micSupported && (
+            <button
+              type="button"
+              className={listening ? 'help-mic listening' : 'help-mic'}
+              onClick={toggleMic}
+              disabled={locating}
+              title={listening ? 'Stop listening' : 'Hold a moment, then speak'}
+              aria-label={listening ? 'Stop listening' : 'Speak to the assistant'}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5.3-3a5.3 5.3 0 0 1-10.6 0H4.8a7.2 7.2 0 0 0 6.2 7.1V21h2v-2.9a7.2 7.2 0 0 0 6.2-7.1z"
+                />
+              </svg>
+            </button>
+          )}
           <input
             type="text"
-            value={draft}
-            placeholder={locating ? 'Locating…' : 'Type a reply…'}
+            value={listening ? interim : draft}
+            placeholder={
+              locating ? 'Locating…' : listening ? 'Listening…' : 'Speak or type a reply…'
+            }
+            readOnly={listening}
             disabled={locating}
             onChange={(e) => setDraft(e.target.value)}
-            onFocus={() => actions.setChatFocus(true)}
-            onBlur={() => actions.setChatFocus(false)}
+            onFocus={() => actions.setInteracting(true)}
+            onBlur={() => actions.setInteracting(false)}
           />
-          <button type="submit" disabled={!draft.trim() || locating}>
+          <button type="submit" disabled={!draft.trim() || locating || listening}>
             Send
           </button>
         </form>
-      </div>
-
-      <div className="help-foot">
-        <p>{HELP_WORDING.simulatedNote}</p>
-        <p>
-          {HELP_WORDING.modelBased} {HELP_WORDING.notOfficial}
-        </p>
-        {!userInDanger && <p>{HELP_WORDING.emergency}</p>}
       </div>
     </div>
   );

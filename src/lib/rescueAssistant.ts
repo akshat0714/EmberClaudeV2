@@ -40,6 +40,8 @@ export interface AssistantContext {
   /** The instruction for the step the person is currently on. */
   currentStep: string | null;
   destinationName: string | null;
+  /** 'pickup-point' = responders meet the person there. */
+  destinationKind: 'safe-zone' | 'pickup-point' | null;
   etaMinutes: number | null;
   distanceKm: number | null;
   routeStatus: 'safe' | 'caution' | 'none' | null;
@@ -73,60 +75,65 @@ export function parseAccessibilityNote(text: string): string | null {
   return null;
 }
 
-function modeVerb(mode: TransportMode | null): string {
-  if (mode === 'car') return 'Drive';
-  if (mode === 'bike') return 'Ride';
-  return 'Move';
-}
-
 function etaPhrase(ctx: AssistantContext): string {
   if (ctx.etaMinutes === null) return '';
   const minutes = Math.max(1, Math.round(ctx.etaMinutes));
-  const dist = ctx.distanceKm !== null ? ` (${ctx.distanceKm.toFixed(1)} km)` : '';
-  return ` About ${minutes} min${dist} to the safe zone.`;
+  return minutes === 1 ? ' It’s about a minute.' : ` It’s about ${minutes} minutes.`;
 }
 
-/** Deterministic fallback replies (also the offline/demo-safe path). */
+/** Deterministic fallback replies — calm, short, written to be spoken aloud. */
 export function localAssistantReply(ctx: AssistantContext, userMessage?: string | null): string {
   void userMessage;
+  const pickup = ctx.destinationKind === 'pickup-point';
   switch (ctx.event) {
     case 'ask-resource':
       return (
-        `I found you on ${ctx.locationLabel}, inside the modeled fire-risk area — we need to get you moving. ` +
-        'What do you have with you: a car, a bike, or are you on foot? And tell me if a disability or injury slows you down.'
+        `I’ve found you on ${ctx.locationLabel}, close to the fire area. ` +
+        'To get you out the best way, tell me — do you have a car or a bike with you, or are you on foot? ' +
+        'And let me know if you have a disability or anything that slows you down.'
       );
     case 'clarify-resource':
-      return 'Sorry — to pick the right way out I need to know: do you have a car, a bike, or are you on foot? If you have a disability, say so and I will plan for extra time.';
+      return 'Sorry — do you have a car, a bike, or are you on foot? If you have a disability, tell me and I’ll plan for that.';
     case 'route-set': {
-      const pace = ctx.accessibilityNote ? ' at your own steady pace' : '';
+      const open =
+        ctx.mode === 'car'
+          ? 'Okay — you have a car, so drive'
+          : ctx.mode === 'bike'
+            ? 'Okay — you have a bike, so ride'
+            : ctx.accessibilityNote
+              ? 'Okay — we’ll keep this short and steady. Head'
+              : 'Okay — head';
+      const meet = pickup && ctx.mode === 'foot' ? ' Responders will meet you there.' : '';
       return (
-        `${modeVerb(ctx.mode)}${pace} ${ctx.routeSummary ?? 'along the highlighted road'}.` +
-        `${etaPhrase(ctx)} Follow the blue path on the map — I am watching the modeled spread and will redirect you if it changes.`
+        `${open} ${ctx.routeSummary ?? 'along the highlighted road'}.${etaPhrase(ctx)}` +
+        `${meet} Follow the blue path on your map — I’ll stay with you and tell you if anything changes.`
       );
     }
     case 'reroute':
-      return `Change of plan — the modeled spread now threatens your previous route. New way out: ${ctx.routeSummary ?? 'follow the updated blue path'}.${etaPhrase(ctx)}`;
+      return `Change of plan — that way isn’t looking safe anymore. New route: ${ctx.routeSummary ?? 'follow the updated blue path'}.${etaPhrase(ctx)}`;
     case 'arrived':
-      return 'You made it — you are at the safe zone, clear of the modeled fire area. Stay there and follow official instructions. (Simulated demo.)';
+      return pickup
+        ? 'You’ve made it — you’re at the pickup point, well clear of the fire. Stay right there; responders are on their way to you.'
+        : 'You’ve made it — you’re at the safe zone, well clear of the fire. Stay there, you’re safe now.';
     case 'no-route':
-      return `${HELP_WORDING.statusNone} ${HELP_WORDING.emergency}`;
+      return HELP_WORDING.statusNone;
     case 'chat':
     default: {
       if (ctx.currentStep) {
-        return `${ctx.currentStep}${etaPhrase(ctx)} Keep following the blue path.`;
+        return `${ctx.currentStep}${etaPhrase(ctx)} You’re doing fine — keep following the blue path.`;
       }
-      return 'I am watching the modeled fire around you. Tell me if you have a car, a bike, or are on foot, and I will pick the safest way out.';
+      return 'I’m right here with you. Tell me if you have a car, a bike, or are on foot, and I’ll pick the safest way out.';
     }
   }
 }
 
-const SYSTEM_PROMPT = `You are a calm wildfire evacuation assistant inside a SIMULATED demo (the "Kenneth Fire" reconstruction). Rules:
-- Reply with plain text only, 1–3 short sentences. No lists, no markdown, no emojis.
+const SYSTEM_PROMPT = `You are a calm evacuation assistant guiding one person away from a wildfire. Rules:
+- Reply with plain text only, 1–3 short sentences that sound natural SPOKEN ALOUD — warm, steady and clear, like a good emergency dispatcher. No lists, no markdown, no emojis, no abbreviations (say "minutes", never "min" or "km").
 - You only describe and explain; the app computes the route and safety. Use ONLY the context facts given — never invent road names, closures, shelters, or fire positions.
 - Always give directions qualitatively: the compass direction plus the road name from the context, e.g. "head NORTH-EAST on E Las Virgenes Canyon Rd".
-- When asking what the person has, ask about: a car, a bike, on foot, and whether a disability or injury slows them down.
-- This is model-based decision support, not official emergency guidance; tell anyone in immediate danger to call 911 and follow official alerts.
-- Never promise an "exact" or "guaranteed safe" route — say "suggested route" / "avoids the modeled fire-risk zones".`;
+- When asking what the person has, ask about: a car, a bike, on foot, and whether a disability slows them down. The way out depends on it.
+- If the destination is a pickup point, reassure them that responders will meet them there.
+- Never promise a guaranteed-safe route — it is the suggested route that avoids the fire-risk zones.`;
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const GEMINI_TIMEOUT_MS = 6000;
@@ -141,6 +148,7 @@ function contextBlock(ctx: AssistantContext): string {
     ctx.routeSummary ? `route directions: ${ctx.routeSummary}` : 'route directions: none yet',
     ctx.currentStep ? `current step: ${ctx.currentStep}` : null,
     `destination: ${ctx.destinationName ?? 'none yet'}`,
+    ctx.destinationKind ? `destination type: ${ctx.destinationKind}` : null,
     ctx.etaMinutes !== null ? `eta minutes: ${Math.round(ctx.etaMinutes)}` : null,
     ctx.distanceKm !== null ? `distance km: ${ctx.distanceKm.toFixed(1)}` : null,
     `route status: ${ctx.routeStatus ?? 'none'}`,

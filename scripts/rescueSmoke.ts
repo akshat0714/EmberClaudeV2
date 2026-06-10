@@ -118,37 +118,45 @@ for (const route of ESCAPE_ROUTES) {
   check(`destination stays clear through all stages: ${route.destination.id}`, clearAtAll);
 }
 
-// ---- a route must exist at rescue start, and it should be the east one ----
+// ---- the way out depends on what the person has ----
+// Car and bike drive/ride out by road into West Hills; on foot (including
+// limited mobility) the app sends them on the short trail straight SOUTH,
+// out of the fire's path — never on the long road trek past its flank.
+const RESOURCES: Array<{ label: string; mode: 'car' | 'bike' | 'foot'; mps: number; expect: string }> = [
+  { label: 'car', mode: 'car', mps: HELP_CONFIG.movement.carMps, expect: 'east-west-hills' },
+  { label: 'bike', mode: 'bike', mps: HELP_CONFIG.movement.bikeMps, expect: 'east-west-hills' },
+  { label: 'foot', mode: 'foot', mps: HELP_CONFIG.movement.footMps, expect: 'south-hidden-hills' },
+  {
+    label: 'limited',
+    mode: 'foot',
+    mps: HELP_CONFIG.movement.limitedMps,
+    expect: 'south-hidden-hills',
+  },
+];
+
 {
-  const t0 = stageTimes[0] + 4 * 60_000; // locate + chat in real time ≈ 4 fire-min
+  const t0 = stageTimes[0] + 4 * 60_000; // locate + chat ≈ 4 fire-min
   const snap = snapshotAt(t0);
-  const choice = selectEscapeRoute(snap, HELP_GPS_POSITION, HELP_CONFIG.movement.footMps);
-  check('a low-risk escape route exists at rescue start', choice !== null);
-  if (choice) {
+  for (const r of RESOURCES) {
+    const choice = selectEscapeRoute(snap, HELP_GPS_POSITION, r.mps, r.mode);
     check(
-      'primary choice leads into the city (east route)',
-      choice.route.id === 'east-west-hills',
-      `chose ${choice.route.id}`,
+      `route choice for ${r.label} is ${r.expect}`,
+      choice !== null && choice.route.id === r.expect,
+      choice ? `chose ${choice.route.id}` : 'no route',
     );
   }
 }
 
 // ---- full escape simulation for every resource type ----
-const speeds: Array<[string, number]> = [
-  ['car', HELP_CONFIG.movement.carMps],
-  ['bike', HELP_CONFIG.movement.bikeMps],
-  ['foot', HELP_CONFIG.movement.footMps],
-  ['limited', HELP_CONFIG.movement.limitedMps],
-];
-
-for (const [label, mps] of speeds) {
+for (const { label, mode, mps, expect } of RESOURCES) {
   const t0 = stageTimes[0] + 4 * 60_000;
   let snap = snapshotAt(t0);
-  const first = selectEscapeRoute(snap, HELP_GPS_POSITION, mps);
+  const first = selectEscapeRoute(snap, HELP_GPS_POSITION, mps, mode);
   if (!first) {
     check(`escape (${label}): route available`, false);
     continue;
   }
+  void expect;
   let path = first.path;
   let destination = first.route.destination;
   let routeId = first.route.id;
@@ -181,7 +189,7 @@ for (const [label, mps] of speeds) {
         snap,
       );
       if (rescored.status === 'rejected') {
-        const alt = selectEscapeRoute(snap, pos, mps);
+        const alt = selectEscapeRoute(snap, pos, mps, mode);
         if (alt) {
           path = alt.path;
           destination = alt.route.destination;
@@ -206,6 +214,9 @@ for (const [label, mps] of speeds) {
     arrived && !burned,
     `route ${routeId}, ${minutes} fire-min, reroutes ${reroutes}, end ${Math.round(finalDist)} m from front`,
   );
+  if (label === 'limited') {
+    check('limited-mobility escape stays short', arrived && minutes <= 40, `${minutes} fire-min`);
+  }
 }
 
 process.exit(failures > 0 ? 1 : 0);
