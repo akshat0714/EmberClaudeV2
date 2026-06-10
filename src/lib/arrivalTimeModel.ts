@@ -290,12 +290,35 @@ export const WIND_UNIT = { x: Math.sin(WIND_RAD), y: Math.cos(WIND_RAD) };
  *    the structure-adjacent WUI fringe is slightly slowed.
  */
 export function stepSpeed(g: TerrainGrid, to: number, dirX: number, dirY: number): number {
+  return stepSpeedWind(
+    g,
+    to,
+    dirX,
+    dirY,
+    WIND.effectiveWindNumber * WIND_UNIT.x,
+    WIND.effectiveWindNumber * WIND_UNIT.y,
+  );
+}
+
+/**
+ * The same elliptical kernel with an explicit wind vector (windX/windY =
+ * effective wind number × direction). The Prediction Lab drives this with a
+ * time-varying wind; the scenario app uses the fixed Santa Ana vector.
+ */
+export function stepSpeedWind(
+  g: TerrainGrid,
+  to: number,
+  dirX: number,
+  dirY: number,
+  windX: number,
+  windY: number,
+): number {
   const fuel = g.fuel[to];
 
   // Effective wind-slope vector: wind plus an uphill-pointing slope term.
   const slopeMag = Math.hypot(g.gradX[to], g.gradY[to]);
-  let effX = WIND.effectiveWindNumber * WIND_UNIT.x;
-  let effY = WIND.effectiveWindNumber * WIND_UNIT.y;
+  let effX = windX;
+  let effY = windY;
   if (slopeMag > 1e-6) {
     const slopeNumber = Math.min(slopeMag / 0.35, 1) * SPEEDS.slopeWindEquivalent;
     effX += (g.gradX[to] / slopeMag) * slopeNumber;
@@ -406,10 +429,7 @@ export function computeArrivalField(
   capMinutes: number = MODEL_CAP_MINUTES,
 ): ArrivalField {
   const g = getTerrainGrid();
-  const n = g.rows * g.cols;
-  const arrival = new Float64Array(n).fill(Infinity);
-  const cameFrom = new Int32Array(n).fill(-1);
-  const heap = new MinHeap();
+  const seeds: number[] = [];
 
   // Seed: cells inside the front (bounding-box prefilter keeps this cheap).
   let minLat = Infinity;
@@ -426,20 +446,44 @@ export function computeArrivalField(
   const r1 = Math.min(g.rows - 1, Math.ceil((maxLat - g.latMin) / g.dLat));
   const c0 = Math.max(0, Math.floor((minLng - g.lngMin) / g.dLng));
   const c1 = Math.min(g.cols - 1, Math.ceil((maxLng - g.lngMin) / g.dLng));
-  let seeded = 0;
   for (let r = r0; r <= r1; r++) {
     for (let c = c0; c <= c1; c++) {
       const i = r * g.cols + c;
-      if (pointInRing(cellLatLng(g, i), frontRing)) {
-        arrival[i] = 0;
-        heap.push(i, 0);
-        seeded++;
-      }
+      if (pointInRing(cellLatLng(g, i), frontRing)) seeds.push(i);
     }
   }
-  if (seeded === 0) {
+  if (seeds.length === 0) {
     const centroid = ringCentroid(frontRing);
-    const i = cellIndexAt(g, centroid.lat, centroid.lng);
+    seeds.push(cellIndexAt(g, centroid.lat, centroid.lng));
+  }
+
+  return computeArrivalFieldOn(
+    g,
+    seeds,
+    capMinutes,
+    WIND.effectiveWindNumber * WIND_UNIT.x,
+    WIND.effectiveWindNumber * WIND_UNIT.y,
+  );
+}
+
+/**
+ * The core minimum-travel-time propagation, generalized over any terrain
+ * grid, seed cells and wind vector — shared verbatim by the scenario app
+ * and the Prediction Lab's time-varying simulation.
+ */
+export function computeArrivalFieldOn(
+  g: TerrainGrid,
+  seeds: number[],
+  capMinutes: number,
+  windX: number,
+  windY: number,
+): ArrivalField {
+  const n = g.rows * g.cols;
+  const arrival = new Float64Array(n).fill(Infinity);
+  const cameFrom = new Int32Array(n).fill(-1);
+  const heap = new MinHeap();
+  for (const i of seeds) {
+    if (arrival[i] === 0) continue;
     arrival[i] = 0;
     heap.push(i, 0);
   }
@@ -456,7 +500,7 @@ export function computeArrivalField(
       const nc = c + s.dc;
       if (nr < 0 || nr >= g.rows || nc < 0 || nc >= g.cols) continue;
       const ni = nr * g.cols + nc;
-      const speed = stepSpeed(g, ni, s.ux, s.uy);
+      const speed = stepSpeedWind(g, ni, s.ux, s.uy, windX, windY);
       const t = priority + (stepBase * s.dist) / speed;
       if (t < arrival[ni] && t <= capMinutes) {
         arrival[ni] = t;

@@ -92,6 +92,37 @@ person along the chosen path for car, foot, and limited mobility:
 npx tsx scripts/rescueSmoke.ts
 ```
 
+## Prediction Lab — the same model on hostile terrain (`#lab`)
+
+The scenario above is realistic and therefore *easy* to predict. The **Prediction Lab**
+(∑ button in the corner, or open `/#lab` — no map key needed) is a separate screen built to
+make prediction genuinely HARD and to show the actual math computing in real time:
+
+- **A hostile synthetic world**, rendered raw, cell by cell: two crossing ridges, a steep
+  peak, a meandering **river barrier with exactly one ford**, a lake, a side canyon, a
+  grass/brush/timber/rock fuel mosaic with the same patchiness field, and a town strip.
+- **A wind that changes mid-run**: steady toward 040°, then a 40-minute rotation to 120° with
+  a lull and a surge (toggle to *Steady wind* for the contrast). An **ember spot fire** lands
+  across the river at τ=35 — two fronts, one model.
+- **The same algorithms, verbatim** — `stepSpeedWind` (the elliptical kernel) and
+  `computeArrivalFieldOn` (the minimum-travel-time Dijkstra) are shared code with the
+  scenario app, run as an event-scheduled simulation: every fire-minute the frontier
+  re-seeds a fresh field under the current wind, and the ignition schedule composes as
+  `min(schedule, now + arrival)` so committed heating is never lost.
+- **The formulas, live** — a HUD recomputes and displays every term each refresh: the
+  effective wind–slope vector U⃗, head rate R_h = R₀·fuel·dry·(1+a·U), ellipse L/B and
+  eccentricity ε, the directional rate R(θ) = R_h(1−ε)/(1−ε·cosθ) (with a live polar plot of
+  the kernel), Dijkstra cell/settle/millisecond counts, and the prediction set
+  {c : T(c) ≤ 15 min}.
+- **Forecast vs reality, graded** — every 15 minutes the model's belief is archived (white
+  dashes on the map) and later scored against what actually burned. Under steady wind the
+  forecasts grade ~98–100%; through the wind shift they fall to ~74–85% and then re-converge
+  — the divergence is the point.
+
+```bash
+npx tsx scripts/labSmoke.ts   # barrier/ford proof (cameFrom trace), wind response, grading
+```
+
 ---
 
 ## What a judge sees
@@ -188,13 +219,16 @@ src/
   components/HelpMode.tsx        Help button + rescue card (chat, directions, steps)
   components/UserLocationLayer.tsx blue dot (halo/ring/dot/wedge) + "You" pin
   components/RescueRouteLayer.tsx blue escape path + green safe zone + framing
-  components/TimelineControls.tsx play/pause/replay, stage scrubber, speeds
+  components/ModelLab.tsx        Prediction Lab screen (canvas world + formula HUD)
+  components/TimelineControls.tsx play/pause/replay, stage scrubber
   components/InfoPanel.tsx       time, stage, drivers, legend, facts
   data/kennethFacts.ts           scenario facts, app title, disclaimer
   data/kennethReconstruction.ts  generated urban stage rings, camera framing
   data/spreadModelConfig.ts      model tunables, styles, Help config + wording
   data/helpScenario.ts           simulated GPS spot, street routes (car / foot)
   lib/arrivalTimeModel.ts        terrain grid + patchiness + anisotropic Dijkstra
+  lib/labTerrain.ts              the lab's hostile synthetic world (same TerrainGrid)
+  lib/labSim.ts                  event-scheduled MTT sim, shifting wind, forecast grading
   lib/helpController.ts          Help flow state machine (locate/ask/guide/escape)
   lib/rescueAssistant.ts         resource parsing + Gemini/LLM-phrased replies
   lib/routeRiskScoring.ts        route sampling vs front/envelope/wind, scoring
@@ -210,6 +244,7 @@ src/
   types/maps3d.d.ts              minimal ambient types for the maps3d library
 scripts/
   rescueSmoke.ts                 full rescue-loop smoke test (npx tsx)
+  labSmoke.ts                    Prediction Lab smoke test (npx tsx)
 ```
 
 Tuning the look: camera framing lives in `SCENE_CAMERA` (`kennethReconstruction.ts`); wind,

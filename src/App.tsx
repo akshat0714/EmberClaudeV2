@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import HelpMode from './components/HelpMode';
 import FireScene, { type RescueView } from './components/FireScene';
 import InfoPanel, { type StructureStatus } from './components/InfoPanel';
+import ModelLab from './components/ModelLab';
 import TimelineControls, { type TimelineStage } from './components/TimelineControls';
 import { useHelpController } from './lib/helpController';
 import type { FireRiskSnapshot } from './lib/fireRiskGeometry';
@@ -95,9 +96,18 @@ function useAnimationClock(startTime: number, endTime: number) {
 }
 
 export default function App() {
+  // The Prediction Lab is a separate screen (no map key needed): #lab
+  const [lab, setLab] = useState(() => window.location.hash === '#lab');
+  useEffect(() => {
+    const onHash = () => setLab(window.location.hash === '#lab');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
   const apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '').trim();
   const keyValid = apiKey !== '' && apiKey !== 'your_google_maps_key_here';
 
+  if (lab) return <ModelLab />;
   if (!keyValid) return <KeyScreen />;
   return <ReconstructionApp apiKey={apiKey} />;
 }
@@ -188,6 +198,16 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
       </header>
 
       <HelpMode state={help.state} actions={help.actions} />
+
+      <button
+        className="lab-btn glass"
+        onClick={() => {
+          window.location.hash = '#lab';
+        }}
+        title="Stress-test the prediction model on hostile terrain, with the formulas live"
+      >
+        ∑ Prediction Lab
+      </button>
 
       <InfoPanel
         time={clock.time}
