@@ -44,6 +44,15 @@ export interface ModelSummary {
   predictionActive: boolean;
   /** The single prediction interval currently shown (e.g. 30, or 20 when critical). */
   horizonMinutes: number;
+  /** Strongest head's modeled rate of spread, m/min. */
+  headRateMpm: number;
+  /** Byram fireline-intensity estimate at that head (null when inactive). */
+  byram: { intensityKwm: number; flameLengthM: number } | null;
+  hotspotCount: number;
+  spotCount: number;
+  /** Data provenance: real USGS DEM / real OSM streets in use. */
+  realDem: boolean;
+  realStreets: boolean;
 }
 
 function level(value: number, high: number, medium: number): DriverLevel {

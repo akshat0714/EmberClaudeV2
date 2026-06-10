@@ -1,13 +1,15 @@
 {
-  "name": "kenneth-fire-3d-reconstruction",
+  "name": "ember-wildfire-evacuation",
   "private": true,
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
-  "description": "Google-Earth-style 3D historical reconstruction of the Kenneth Fire spread over terrain and structures.",
+  "description": "Research-based wildfire spread simulation and fire-aware evacuation navigation over Google photorealistic 3D maps (Kenneth Fire scenario).",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "tsx scripts/smoke.test.ts",
+    "fetch-data": "node scripts/fetch-dem.mjs && node scripts/fetch-streets.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -17,6 +19,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.22.4",
     "typescript": "~5.6.3",
     "vite": "^5.4.11"
   },

@@ -1,6 +1,6 @@
-import { DISCLAIMER, KENNETH_FIRE, MODE_LABEL } from '../data/kennethFacts';
+import { DISCLAIMER, KENNETH_FIRE, KENNETH_WEATHER, MODE_LABEL } from '../data/kennethFacts';
 import { SPREAD_STAGES } from '../data/kennethReconstruction';
-import { WORDING } from '../data/spreadModelConfig';
+import { INTENSITY_STYLE, WORDING } from '../data/spreadModelConfig';
 import type { DriverLevel, ModelSummary } from '../lib/spreadDrivers';
 import { formatPacificDate, formatPacificTime, formatUtc } from '../lib/timeUtils';
 
@@ -33,6 +33,10 @@ function DriverRow({ label, level }: { label: string; level: DriverLevel }) {
       <span className="driver-level">{level}</span>
     </li>
   );
+}
+
+function formatIntensity(kwm: number): string {
+  return kwm >= 1000 ? `${(kwm / 1000).toFixed(1)} MW/m` : `${Math.round(kwm)} kW/m`;
 }
 
 export default function InfoPanel({
@@ -71,6 +75,37 @@ export default function InfoPanel({
         <p className="value-sub">≈{percentOfFinal}% of final footprint area (reconstructed)</p>
       </section>
 
+      {model.predictionActive && model.byram && (
+        <section>
+          <h3>Fire behavior (modeled)</h3>
+          <dl className="facts">
+            <div>
+              <dt>Head rate of spread</dt>
+              <dd>{model.headRateMpm.toFixed(0)} m/min</dd>
+            </div>
+            <div>
+              <dt>Fireline intensity</dt>
+              <dd>{formatIntensity(model.byram.intensityKwm)}</dd>
+            </div>
+            <div>
+              <dt>Flame length</dt>
+              <dd>≈{model.byram.flameLengthM.toFixed(1)} m</dd>
+            </div>
+            <div>
+              <dt>Active sub-fires</dt>
+              <dd>
+                {model.hotspotCount} heads{model.spotCount > 0 ? ` + ${model.spotCount} ember spots` : ''}
+              </dd>
+            </div>
+          </dl>
+          <p className="section-caption">
+            Byram (1959): I = H·w·R; flame length 0.0775·I^0.46. Above ~
+            {formatIntensity(INTENSITY_STYLE.legendKwm[0])} control efforts generally fail
+            (crowning/spotting class).
+          </p>
+        </section>
+      )}
+
       {model.drivers && (
         <section>
           <h3>Spread drivers</h3>
@@ -92,30 +127,33 @@ export default function InfoPanel({
         <h3>Legend</h3>
         <ul className="legend">
           <li>
-            <span className="swatch swatch-burned" />
-            <span>Burned / reached terrain (reconstruction)</span>
-          </li>
-          <li>
-            <span className="swatch swatch-history" />
-            <span>Past spread contours</span>
+            <span className="swatch swatch-intensity" />
+            <span>
+              Fire intensity — darkest red = peak combustion just behind the front, fading as
+              fuels burn out
+            </span>
           </li>
           <li>
             <span className="swatch swatch-front" />
             <span>Current active front</span>
           </li>
           <li>
-            <span className="swatch swatch-zone-pred" />
-            <span>{WORDING.zoneLabel(model.horizonMinutes)}</span>
+            <span className="swatch swatch-hotspot" />
+            <span>Active sub-fires (10–20 heads) · ember spot fires downwind</span>
           </li>
           <li>
-            <span className="swatch swatch-pathway" />
-            <span>Likely advancing pathways (wind · slope · canyon)</span>
+            <span className="swatch swatch-zone-pred" />
+            <span>{WORDING.zoneLabel(model.horizonMinutes)} — merged envelope</span>
+          </li>
+          <li>
+            <span className="swatch swatch-tree" />
+            <span>Per-sub-fire prediction trees (likely spread routes, branching)</span>
           </li>
           <li>
             <span className="swatch swatch-wind" aria-hidden="true">
               →
             </span>
-            <span>Wind direction</span>
+            <span>Wind direction ({KENNETH_WEATHER.summary})</span>
           </li>
           <li>
             <span className="swatch swatch-structure" />
@@ -165,10 +203,25 @@ export default function InfoPanel({
             <dd>{KENNETH_FIRE.location}</dd>
           </div>
           <div>
+            <dt>Weather</dt>
+            <dd>{KENNETH_WEATHER.summary}</dd>
+          </div>
+          <div>
             <dt>Mode</dt>
             <dd>{MODE_LABEL}</dd>
           </div>
         </dl>
+      </section>
+
+      <section>
+        <h3>Data</h3>
+        <p className="section-caption">
+          Elevation: {model.realDem ? 'USGS 3DEP (real DEM)' : 'analytic fallback'} · Streets &
+          development: {model.realStreets ? 'OpenStreetMap (real)' : 'analytic fallback'}
+        </p>
+        <p className="section-caption">
+          © OpenStreetMap contributors (ODbL) · 3DEP data courtesy of the U.S. Geological Survey
+        </p>
       </section>
 
       <p className="panel-disclaimer">{DISCLAIMER}</p>

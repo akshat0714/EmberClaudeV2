@@ -212,7 +212,7 @@ export function chaikinClosed(ring: LatLng[], iterations: number): LatLng[] {
   return pts;
 }
 
-function chaikinOpen(path: LatLng[], iterations: number): LatLng[] {
+export function chaikinOpen(path: LatLng[], iterations: number): LatLng[] {
   let pts = path;
   for (let it = 0; it < iterations; it++) {
     const out: LatLng[] = [pts[0]];

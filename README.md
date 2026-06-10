@@ -1,18 +1,75 @@
-# Kenneth Fire — 3D Historical Fire-Spread Reconstruction
+# Ember — Wildfire Spread Prediction & Evacuation Navigator
 
-A judge-friendly, Google-Earth-style 3D demo that tells the Kenneth Fire story (West Hills /
-Calabasas, January 2025) with three clear concepts: subtle charcoal **burned history**, a bright
-pulsing **current active front**, and **one** model-based prediction — *"Likely spread in next
-30 minutes"* — drawn as a single gradient zone with a crisp boundary, explained by faint wind
-streamlines, thin spread-pathway ribbons, and dashed structure-edge lines. Everything is draped
-onto **Google photorealistic 3D terrain and buildings**.
+A Google-Earth-style 3D app that simulates a wildfire spreading through a real region — the
+**Kenneth Fire** (West Hills / Calabasas, January 9 2025) — and navigates a user out of danger
+like Google Maps would, except every route is checked, point-by-point and **in time**, against
+where the fire is **predicted to be**, not just where it is now.
 
-> Observed and reconstructed spread zones with model-based spread potential.
-> **Not an official perimeter. Not emergency guidance.**
+Every behavioral number in the model is **derived from published research, verified against
+the primary sources** — the FARSITE fire-shape equations, Rothermel-lineage wind/slope
+relations, Byram's fireline intensity, Anderson's residence times, the Cova et al. evacuation
+trigger-buffer methodology, NIST WUI evacuation reconstructions, and the actual NWS/ASOS
+weather observations from the afternoon of the fire. **See [RESEARCH.md](RESEARCH.md)** for the
+complete parameter-to-source mapping.
 
-No backend. The only network use is Google's map library + 3D tiles.
+> Research-based simulation over a reconstructed historical scenario.
+> **Not an official perimeter. Not emergency guidance — always follow official alerts.**
 
 ---
+
+## What it does
+
+### Fire simulation (the red)
+- **Fire intensity field** rendered as nested red bands draped over photorealistic 3D
+  terrain: **darkest, most saturated red where combustion peaks** (just behind the advancing
+  front), cooling through lighter reds to the smoldering interior — the time-since-burned →
+  intensity mapping follows Byram (1959) intensity and Anderson (1969) residence/burnout
+  research.
+- A **multi-point active front** (~224 independently advancing frontier points) sweeps
+  continuously between reconstructed stages of the real fire (3:34 PM ignition → evening
+  1,052-acre footprint, the official CAL FIRE size).
+- **10–20 active sub-fires**: the front's strongest heads are detected as pulsing hotspots,
+  and **ember spot fires** ignite downwind of them (distances bounded by the observed Santa
+  Ana spotting record).
+
+### Prediction (the yellow)
+- A FARSITE/Huygens-family **minimum-travel-time model** (Finney-style Dijkstra over a 70 m
+  terrain grid) propagates from the current front *and* the spot fires using the verified
+  elliptical kernel — real DEM slope as equivalent wind, canyon channeling derived from the
+  terrain itself, street-derived urban fuel breaks.
+- **One merged "Predicted fire spread — next 30 min" envelope** drawn as a bold yellow
+  gradient with a crisp boundary (narrows to a 20-minute critical interval when the head
+  rate is extreme).
+- **Per-sub-fire prediction trees**: each hotspot grows branching, worm-like yellow paths —
+  the model's actual minimum-travel-time routes with their decision-tree branch points —
+  showing where *that* sub-fire would run. Everything re-derives continuously (~1.4×/s) as
+  the clock advances.
+
+### Evacuation (the blue)
+- The user is a **Google-Maps-style blue dot** (accuracy halo per the W3C 95% accuracy
+  radius, heading wedge), positioned by real browser GPS, by clicking the map, or from demo
+  locations inside the real January 2025 evacuation-order area.
+- Routing runs on the **real street network** (OpenStreetMap: 13,779 edges, real names,
+  one-ways, signed speed limits) with a time-dependent A*:
+
+  ```
+  clearance(point) = fire_arrival(point) − evacuee_arrival(point) ≥ 10 min
+  ```
+
+  A street that is open *now* but predicted to be overrun before you would clear it is
+  **rejected** — the trigger-buffer logic of Cova et al. (2005) / WUIVAC applied per road
+  segment. Soft penalties keep routes 20+ min clear when possible; if no fully safe route
+  exists, the least-bad option is shown explicitly flagged, never as safe.
+- Destinations are the **real evacuation centers** that served this area in January 2025
+  (El Camino Real Charter High School; Calvary Community Church — the shelter Calabasas
+  directed Kenneth evacuees to; Pierce College). The router picks the best safely-reachable
+  one.
+- **Turn-by-turn guidance** with real street names ("In 500 ft, turn left onto Vanowen
+  Street"), live ETA, remaining distance, the route's fire-clearance margin, optional voice
+  prompts (Web Speech API), continuous off-route detection and **automatic rerouting when
+  the fire prediction cuts the road ahead** — with a drive simulator so the whole loop is
+  demoable end-to-end. Driving and walking profiles (HCM 1.2 m/s pedestrian default;
+  evacuation-factored vehicle speeds).
 
 ## Quick start
 
@@ -21,158 +78,96 @@ npm install
 npm run dev
 ```
 
-Open the printed URL (usually `http://localhost:5173`).
+Open the printed URL (usually `http://localhost:5173`), then use the **Evacuation demo** mode
+toggle (top-left). `npm test` runs 49 node smoke tests, including independent verification
+that no route ever violates the fire-clearance margin.
 
 ### Google Maps API key (required)
 
-The app shows a clean setup screen until a key is configured:
-
 1. In the [Google Cloud console](https://console.cloud.google.com/google/maps-apis), create an
-   API key. The project must have **billing enabled** (photorealistic 3D tiles require it; the
-   monthly free tier comfortably covers demo usage).
-2. Enable the **Maps JavaScript API** and the **Map Tiles API** for that project.
-3. Create `.env` in the project root (see `.env.example`):
+   API key (the project must have **billing enabled** — photorealistic 3D tiles require it;
+   the monthly free tier comfortably covers demo usage).
+2. Enable the **Maps JavaScript API** and the **Map Tiles API**.
+3. `cp .env.example .env` and paste the key; restart `npm run dev`.
 
-   ```bash
-   VITE_GOOGLE_MAPS_API_KEY=your_google_maps_key_here
-   ```
+No other keys or services are needed at runtime.
 
-4. Restart `npm run dev` (Vite reads `.env` at startup).
+## Real data
 
-If Google rejects the key at runtime, the app replaces the map with a clear diagnostic card
-instead of a black screen.
+| Data | Source | Fetched |
+| --- | --- | --- |
+| Streets (names, one-ways, speed limits) | OpenStreetMap via Overpass (`© OpenStreetMap contributors`, ODbL) | build time → `public/data/streets.json` |
+| Elevation (10 m USGS 3DEP/NED) | AWS Open Data Terrain Tiles (terrarium) | build time → `public/data/dem.json` |
+| Development / urban fuel breaks | derived from the street network | grid build |
+| Canyon channeling | derived from the DEM (structure tensor + relative depression) | grid build |
+| Weather (wind 20°@15–22 mph G31, RH 5–6%) | VNY ASOS observations + NWS Red Flag Warning, Jan 9 2025 | verified constants |
+| Incident facts, evacuation centers | CAL FIRE / LAFD / Cal OES / City of Calabasas records | verified constants |
 
----
+Both data files are committed, so the app runs offline-from-bundle; refresh them with
+`npm run fetch-data`.
 
-## What a judge sees
+## Architecture
 
-1. **Fly-in** over photorealistic West Hills / Upper Las Virgenes Canyon — streets, ridgelines,
-   and neighborhoods are immediately recognizable (hybrid mode keeps place labels on).
-2. **Burned history** — terrain already reached renders as a subtle dark charcoal overlay
-   (recent intervals slightly lighter than older ones) with faint past-arrival contour lines,
-   so ridges, roads, and buildings stay visible underneath.
-3. **Current active front** — the brightest layer: a crisp, gently pulsing yellow-orange line
-   that sweeps continuously between the reconstruction stages (3:34 PM ignition → 3:45 PM →
-   5:00 PM → 5:30 PM → evening final footprint, official 1,052 acres), labelled on the terrain.
-4. **One prediction zone** — at the current timeline position, a FARSITE/Huygens-style
-   minimum-travel-time model propagates from the front and draws a single
-   **"Likely spread in next 30 minutes"** extent: an anisotropic, terrain-aware gradient zone
-   (stronger orange near the front, softer toward the edge) under one crisp boundary —
-   stretched downwind/uphill, pinched at barriers, never a circle. When the front is running
-   extremely fast (head rate ≥ ~20 m/min), the model narrows to a **20-minute critical
-   interval** instead — still only one predicted extent at a time. On-terrain label:
-   *"Likely spread in next 30 minutes"*, sublabel *"Spread potential, not official perimeter"*.
-5. **Cause cues, kept thin** — faint wind-direction streamlines; 2–5 pale spread-pathway
-   ribbons along the model's lowest-cost routes, with at most two cause labels
-   ("Wind-driven spread", "Uphill slope influence", "Canyon channeling"); dashed
-   structure-edge lines ("Structure-edge resistance", "Neighborhood edge risk") where the
-   footprint meets neighborhoods — no building damage implied.
-6. **Driver panel** — Wind / Slope / Fuel / Canyon channeling / Structure-edge resistance as
-   live High–Medium–Low meters, captioned: *"Prediction uses wind, slope, fuel, canyon
-   alignment, and structure-edge resistance."*
-7. **Timeline** — play/pause, replay, stage-labeled scrubber (click to jump), 1x/5x/20x.
-   At the final stage the prediction hides ("forward progress stopped") and the history +
-   final perimeter remain.
+```
+scripts/
+  fetch-streets.mjs       Overpass → routing graph (junctions + edge geometry)
+  fetch-dem.mjs           terrarium tiles → 30 m elevation grid (int16 base64)
+  smoke.test.ts           49 model/router/guidance verification tests
+src/
+  App.tsx                 modes (timeline | evacuate), sim clock, wiring
+  components/FireScene.tsx     all 3D layers (fire, prediction, navigation)
+  components/NavigationPanel.tsx  setup + live turn-by-turn card
+  components/InfoPanel.tsx     fire-behavior readouts, legend, facts
+  components/TimelineControls.tsx playback (real-time-multiple speeds in evac mode)
+  data/spreadModelConfig.ts    every model constant, each tied to RESEARCH.md
+  data/navConfig.ts            routing margins/speeds + real safe zones
+  data/kennethReconstruction.ts stage rings (labelled reconstruction)
+  lib/arrivalTimeModel.ts      terrain grid + researched elliptical MTT kernel
+  lib/fireIntensity.ts         Byram intensity bands (time-since-burned)
+  lib/hotspots.ts              sub-fire heads + ember spot scheduling
+  lib/predictionTrees.ts       per-hotspot branching MTT trees
+  lib/fireAwareRouter.ts       time-dependent A* with clearance margins
+  lib/turnByTurn.ts            maneuvers from real street geometry/names
+  lib/useNavigation.ts         GPS/sim fixes, reroutes, voice, arrival
+  lib/fireHazard.ts            fire model → router bridge (90-min field)
+  lib/streetGraph.ts           graph load, spatial hash, GPS snapping
+  lib/dem.ts                   real-DEM sampling (analytic fallback)
+  lib/fireTimeline.ts          front geometry at any sim time
+```
 
-## The spread model
-
-A **FARSITE/Huygens-family fire-growth model** implemented as Finney-style **Minimum Travel
-Time** propagation (Dijkstra over a terrain cost grid) with an **elliptical spread kernel**:
-
-- ~7,700 terrain cells (70 m) cover the preserve and bordering neighborhoods. Elevation is an
-  **approximated analytic surface** of the area's main landforms (northern ridge, Lasky Mesa,
-  Castle Peak, Las Virgenes Creek canyon, the SW drainage) — no DEM download, no extra APIs.
-- Slope acts like added wind (Rothermel-style): an effective wind-slope vector sets each
-  cell's local head-spread direction; its magnitude drives the head rate and the ellipse
-  length-to-breadth (simplified after Anderson 1983). Rate at angle θ off the head follows the
-  rear-focus ellipse form R(θ) = R_head·(1−ε)/(1−ε·cosθ) — measured head/flank/back ≈
-  18.7 / 1.8 / 1.0 m/min in open grass. Canyon channeling multiplies speed along drainage
-  axes; developed blocks are near-barriers; the WUI fringe is slightly slowed.
-- **Frontier-point front:** the displayed active edge is ~224 independent frontier points.
-  Per interval, each point's advancement schedule comes from the model's pace toward its
-  target position (progress = p^γ, γ smoothed around the ring), so tongues surge
-  downwind/upslope/along canyons while resisted edges stall — yet every point lands exactly on
-  the historical stage ring at the interval end. 10–20 crimson tendrils grow out along the
-  model's fastest routes (validated minimum-travel-time traces, not decoration).
-- The raw grid is never shown: marching-squares contours + Chaikin smoothing produce the dense
-  (~200-vertex) zone geometry, clamped so the visible boundary never dips behind the front;
-  the displayed zone morphs smoothly between model refreshes. The model refreshes ~1.4×/second
-  as the timeline moves (~25 ms per refresh) and pauses at the final footprint.
-- Verified by node smoke tests: kernel ratios, shell nesting, monotone growth, downwind
-  stretch vs upwind pinch, barrier containment, pathway/cause and driver sanity.
+The model refresh budget is small (measured): terrain grid 56 ms once; prediction field 14 ms;
+hotspots + spots + trees ~3 ms; routing field 10 ms; full route 6 ms.
 
 ## Honesty & accuracy
 
-This is a **communication tool, clearly labelled as a reconstruction with model output**:
+- Official facts are verbatim (start Jan 9 2025 3:34 PM PT; contained Jan 12; 1,052 acres;
+  Victory Blvd west of Gilmore St). Stage polygons are a labelled **reconstruction**, not
+  surveyed perimeters; the final ring matches the official acreage.
+- The prediction is explicitly **model-based potential** and the routing demo is labelled
+  **not emergency guidance**.
+- Known divergences from the research are listed in [RESEARCH.md §6](RESEARCH.md) (no crown
+  fire/plume dynamics, fixed congestion factor, stochastic-illustrative spotting, calibration
+  to a Kenneth-scale event).
 
-- **Official facts are verbatim**: start Jan 9, 2025, 3:34 PM PT; contained Jan 12, 2025,
-  7:48 AM PT; final size 1,052 acres; location Victory Blvd west of Gilmore St.
-- **Stage polygons are reconstructed**, not surveyed perimeters; the final ring's area is tuned
-  to the official 1,052 acres, with strict ring nesting verified by script.
-- **The predicted zone is explicitly model-based potential** — labelled *"Spread potential,
-  not official perimeter"* on the terrain and in the panel, hidden once the reconstruction
-  ends. It is a potential extent, not a deterministic future perimeter.
-- Intermediate acreages are never displayed; only stage names, times, and an explicitly
-  "(reconstructed)" percent readout.
-- On-screen disclaimer: *"Observed and reconstructed spread zones with model-based spread
-  potential. Not an official perimeter. Not emergency guidance."*
-
-## Tech
-
-| Piece | Choice |
-| --- | --- |
-| App | React 18 + Vite 5 + TypeScript (strict) — no other npm runtime deps |
-| 3D map | Google Maps JavaScript API (`v=beta`, `maps3d` library): `Map3DElement` photorealistic tiles, `Polygon3DElement` zone bands draped with `CLAMP_TO_GROUND`, `Polyline3DElement` front line, `Marker3DElement` ignition pin |
-| Camera | Cinematic low-angle fly-in (`flyCameraTo`), stable during playback, Recenter button |
-| Animation | `requestAnimationFrame` clock over the real stage times; ring resample + align + lerp for the moving front |
-
-```
-src/
-  App.tsx                        app state, rAF clock, key screen
-  components/FireScene.tsx       Google 3D map + history/front/prediction layers
-  components/TimelineControls.tsx play/pause/replay, stage scrubber, speeds
-  components/InfoPanel.tsx       time, stage, drivers, legend, facts
-  data/kennethFacts.ts           official incident facts + disclaimer
-  data/kennethReconstruction.ts  stage rings, structure edges, camera framing
-  data/spreadModelConfig.ts      model tunables, band styles, display wording
-  lib/arrivalTimeModel.ts        terrain grid + anisotropic Dijkstra propagation
-  lib/predictionBands.ts         marching-squares contours, dashes, pathways
-  lib/spreadDrivers.ts           High/Medium/Low driver summary for the panel
-  lib/interpolatePolygon.ts      ring resample/align/lerp + area helpers
-  lib/loadGoogleMaps.ts          runtime loader for the maps3d library
-  lib/timeUtils.ts               PT/UTC formatting, easing, binary search
-  types/maps3d.d.ts              minimal ambient types for the maps3d library
-```
-
-Tuning the look: camera framing lives in `SCENE_CAMERA` (`kennethReconstruction.ts`); wind,
-speeds, band colors/horizons, and all model wording live in `src/data/spreadModelConfig.ts`.
-
-### Why not CesiumJS?
-
-CesiumJS + Google 3D Tiles was the fallback option; the Maps JS `maps3d` route was chosen
-because it needs zero heavy dependencies, ships Google's own camera/clamping behavior, and
-keeps the bundle at ~164 KB. If you ever need Cesium instead, the data layer
-(`kennethReconstruction.ts`, `interpolatePolygon.ts`) is renderer-agnostic.
-
-## Build
+## Build & test
 
 ```bash
-npm run build    # type-checks and produces dist/
-npm run preview  # serve the production build
+npm run build       # typecheck + production bundle (~77 KB gzip JS)
+npm test            # 49 smoke tests (model physics, sub-fires, router safety, guidance)
+npm run fetch-data  # refresh the bundled OSM + DEM extracts
 ```
 
 ## Troubleshooting
 
-- **"Google Maps API key required" screen** — create `.env` with
-  `VITE_GOOGLE_MAPS_API_KEY=...` and restart the dev server.
-- **"3D map unavailable" card** — the key was rejected: check that billing is enabled and that
-  *Maps JavaScript API* + *Map Tiles API* are both enabled; remove referrer restrictions for
-  `localhost` testing.
-- **Tiles load slowly on first run** — photorealistic tiles stream progressively; give the
-  fly-in a few seconds on a fresh cache.
+- **"Google Maps API key required"** — create `.env` with `VITE_GOOGLE_MAPS_API_KEY=...`.
+- **"3D map unavailable"** — key rejected: check billing + that *Maps JavaScript API* and
+  *Map Tiles API* are enabled; remove referrer restrictions for `localhost`.
+- **GPS button errors** — browser geolocation needs HTTPS or localhost; use click-to-place
+  or the demo locations instead.
+- **Tiles load slowly on first run** — photorealistic tiles stream progressively.
 
 ---
 
-*Earlier versions of this repo animated raw NASA FIRMS satellite detections with Mapbox +
-deck.gl. That approach was replaced by this reconstruction because judges found discrete
-detection points hard to read; the git history preserves it.*
+*This repo previously hosted the Kenneth Fire 3D reconstruction; it has been extended into a
+full evacuation navigator. Attribution: streets © OpenStreetMap contributors (ODbL); 3DEP
+elevation data courtesy of the U.S. Geological Survey; map © Google.*

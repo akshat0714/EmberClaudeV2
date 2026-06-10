@@ -1,25 +1,29 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import FireScene from './components/FireScene';
+import FireScene, { type NavOverlay } from './components/FireScene';
 import InfoPanel, { type StructureStatus } from './components/InfoPanel';
-import TimelineControls, { type TimelineStage } from './components/TimelineControls';
+import NavigationPanel from './components/NavigationPanel';
+import TimelineControls, {
+  type SpeedPreset,
+  type TimelineStage,
+} from './components/TimelineControls';
 import type { ModelSummary } from './lib/spreadDrivers';
-import {
-  APP_SUBTITLE,
-  APP_TAGLINE,
-  APP_TITLE,
-  DISCLAIMER,
-} from './data/kennethFacts';
+import { APP_SUBTITLE, APP_TAGLINE, APP_TITLE, DISCLAIMER } from './data/kennethFacts';
 import { SPREAD_STAGES, STRUCTURE_EDGES } from './data/kennethReconstruction';
 import { PREDICTION_ZONE } from './data/spreadModelConfig';
+import { initTerrain } from './lib/arrivalTimeModel';
 import {
   interpolateRings,
   prepareTransition,
   ringAreaAcres,
 } from './lib/interpolatePolygon';
 import { clamp, countAtOrBefore, smoothstep01 } from './lib/timeUtils';
+import { remainingPath } from './lib/turnByTurn';
+import { useNavigation } from './lib/useNavigation';
 
 /** At 1x the full reconstruction timeline plays in about this long. */
 const DEMO_DURATION_MS = 60_000;
+
+type AppMode = 'timeline' | 'evacuate';
 
 /**
  * requestAnimationFrame clock over the reconstruction time range. Pauses at
@@ -82,27 +86,99 @@ function useAnimationClock(startTime: number, endTime: number) {
     setSpeed(multiplier);
   };
 
-  return { time, playing, speed, toggle, replay, seek, changeSpeed };
+  const play = () => {
+    stateRef.current.playing = true;
+    setPlaying(true);
+  };
+
+  return { time, playing, speed, toggle, replay, seek, changeSpeed, play };
 }
 
 export default function App() {
   const apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '').trim();
   const keyValid = apiKey !== '' && apiKey !== 'your_google_maps_key_here';
+  const [terrain, setTerrain] = useState<'loading' | 'ready' | 'failed'>('loading');
+
+  // Real data first: USGS DEM + OSM street graph load before the model runs,
+  // so the terrain grid is built from them (analytic fallback otherwise).
+  useEffect(() => {
+    if (!keyValid) return;
+    let cancelled = false;
+    initTerrain()
+      .then(() => !cancelled && setTerrain('ready'))
+      .catch(() => !cancelled && setTerrain('ready')); // fallbacks still work
+    return () => {
+      cancelled = true;
+    };
+  }, [keyValid]);
 
   if (!keyValid) return <KeyScreen />;
-  return <ReconstructionApp apiKey={apiKey} />;
+  if (terrain === 'loading') {
+    return (
+      <FallbackShell>
+        <div className="spinner" aria-hidden="true" />
+        <p>Loading real terrain (USGS 3DEP) and street network (OpenStreetMap)…</p>
+      </FallbackShell>
+    );
+  }
+  return <EmberApp apiKey={apiKey} />;
 }
 
-function ReconstructionApp({ apiKey }: { apiKey: string }) {
+function EmberApp({ apiKey }: { apiKey: string }) {
   const stageTimes = useMemo(() => SPREAD_STAGES.map((s) => Date.parse(s.timeIso)), []);
   const startTime = stageTimes[0];
   const endTime = stageTimes[stageTimes.length - 1];
   const clock = useAnimationClock(startTime, endTime);
+  const [mode, setMode] = useState<AppMode>('timeline');
+  const [follow, setFollow] = useState(false);
   const [model, setModel] = useState<ModelSummary>({
     drivers: null,
     predictionActive: true,
     horizonMinutes: PREDICTION_ZONE.primaryMinutes,
+    headRateMpm: 0,
+    byram: null,
+    hotspotCount: 0,
+    spotCount: 0,
+    realDem: false,
+    realStreets: false,
   });
+
+  const { state: nav, actions: navActions } = useNavigation(clock.time, mode === 'evacuate');
+
+  /** Demo-multiplier that advances the sim clock at ×R real time. */
+  const realtimeMultiplier = (r: number) =>
+    (r * DEMO_DURATION_MS) / Math.max(endTime - startTime, 1);
+
+  const speedPresets: SpeedPreset[] = useMemo(
+    () =>
+      mode === 'timeline'
+        ? [
+            { label: '1x', multiplier: 1 },
+            { label: '5x', multiplier: 5 },
+            { label: '20x', multiplier: 20 },
+          ]
+        : [
+            { label: '×1 real', multiplier: realtimeMultiplier(1) },
+            { label: '×20', multiplier: realtimeMultiplier(20) },
+            { label: '×60', multiplier: realtimeMultiplier(60) },
+          ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, startTime, endTime],
+  );
+
+  const enterMode = (next: AppMode) => {
+    if (next === mode) return;
+    setMode(next);
+    if (next === 'evacuate') {
+      // live simulation pacing: fire advances at ×20 real time by default
+      clock.changeSpeed(realtimeMultiplier(20));
+      clock.play();
+      setFollow(false);
+    } else {
+      navActions.stop();
+      clock.changeSpeed(1);
+    }
+  };
 
   const timelineStages = useMemo<TimelineStage[]>(
     () =>
@@ -141,24 +217,74 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
     sinceLabel: SPREAD_STAGES[edge.activeFromStage].timeLabel,
   }));
 
+  const navOverlay: NavOverlay = useMemo(() => {
+    const routePath =
+      nav.track && nav.progress
+        ? remainingPath(nav.track, nav.progress.alongM)
+        : (nav.track?.path ?? null);
+    return {
+      active: mode === 'evacuate',
+      user: nav.user,
+      routePath: nav.phase === 'navigating' ? routePath : null,
+      routeDegraded: nav.degraded,
+      destinationId: nav.route?.target.id ?? null,
+      placing: mode === 'evacuate' && nav.phase !== 'navigating' && nav.phase !== 'arrived',
+      follow: follow && nav.phase === 'navigating',
+    };
+  }, [mode, nav, follow]);
+
   return (
     <div className="app-root">
-      <FireScene apiKey={apiKey} time={clock.time} onModelUpdate={setModel} />
+      <FireScene
+        apiKey={apiKey}
+        time={clock.time}
+        onModelUpdate={setModel}
+        nav={navOverlay}
+        onMapClick={(point) => {
+          if (mode === 'evacuate' && nav.phase !== 'navigating' && nav.phase !== 'arrived') {
+            navActions.placeUser(point);
+          }
+        }}
+      />
       <div className="edge-fade" aria-hidden="true" />
 
       <header className="title-block">
         <h1>{APP_TITLE}</h1>
         <p className="subtitle">{APP_SUBTITLE}</p>
         <p className="tagline">{APP_TAGLINE}</p>
+        <div className="mode-switch" role="group" aria-label="App mode">
+          <button
+            className={mode === 'timeline' ? 'mode-btn active' : 'mode-btn'}
+            onClick={() => enterMode('timeline')}
+          >
+            Fire timeline
+          </button>
+          <button
+            className={mode === 'evacuate' ? 'mode-btn active' : 'mode-btn'}
+            onClick={() => enterMode('evacuate')}
+          >
+            Evacuation demo
+          </button>
+        </div>
       </header>
 
-      <InfoPanel
-        time={clock.time}
-        stageIndex={stageIndex}
-        percentOfFinal={percentOfFinal}
-        structures={structures}
-        model={model}
-      />
+      {mode === 'timeline' ? (
+        <InfoPanel
+          time={clock.time}
+          stageIndex={stageIndex}
+          percentOfFinal={percentOfFinal}
+          structures={structures}
+          model={model}
+        />
+      ) : (
+        <NavigationPanel
+          nav={nav}
+          actions={navActions}
+          simTime={clock.time}
+          follow={follow}
+          onFollowChange={setFollow}
+        />
+      )}
 
       <TimelineControls
         playing={clock.playing}
@@ -168,6 +294,7 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
         endTime={endTime}
         stages={timelineStages}
         currentStageIndex={stageIndex}
+        speedPresets={speedPresets}
         onToggle={clock.toggle}
         onReplay={clock.replay}
         onSeek={clock.seek}
@@ -196,8 +323,7 @@ function KeyScreen() {
     <FallbackShell>
       <h1>Google Maps API key required</h1>
       <p>
-        This reconstruction renders Google photorealistic 3D terrain and buildings, which needs an
-        API key:
+        This app renders Google photorealistic 3D terrain and buildings, which needs an API key:
       </p>
       <ol>
         <li>

@@ -1,13 +1,22 @@
 import type { CSSProperties } from 'react';
 import { formatPacific } from '../lib/timeUtils';
 
-const SPEEDS = [1, 5, 20];
-
 export interface TimelineStage {
   name: string;
   timeLabel: string;
   timeMs: number;
 }
+
+export interface SpeedPreset {
+  label: string;
+  multiplier: number;
+}
+
+const DEFAULT_PRESETS: SpeedPreset[] = [
+  { label: '1x', multiplier: 1 },
+  { label: '5x', multiplier: 5 },
+  { label: '20x', multiplier: 20 },
+];
 
 interface TimelineControlsProps {
   playing: boolean;
@@ -17,6 +26,7 @@ interface TimelineControlsProps {
   endTime: number;
   stages: TimelineStage[];
   currentStageIndex: number;
+  speedPresets?: SpeedPreset[];
   onToggle: () => void;
   onReplay: () => void;
   onSeek: (t: number) => void;
@@ -31,6 +41,7 @@ export default function TimelineControls({
   endTime,
   stages,
   currentStageIndex,
+  speedPresets = DEFAULT_PRESETS,
   onToggle,
   onReplay,
   onSeek,
@@ -120,13 +131,13 @@ export default function TimelineControls({
         </div>
 
         <div className="speed-group" role="group" aria-label="Playback speed">
-          {SPEEDS.map((s) => (
+          {speedPresets.map((preset) => (
             <button
-              key={s}
-              className={s === speed ? 'speed-btn active' : 'speed-btn'}
-              onClick={() => onSpeedChange(s)}
+              key={preset.label}
+              className={Math.abs(preset.multiplier - speed) < 1e-9 ? 'speed-btn active' : 'speed-btn'}
+              onClick={() => onSpeedChange(preset.multiplier)}
             >
-              {s}x
+              {preset.label}
             </button>
           ))}
         </div>

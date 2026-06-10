@@ -80,6 +80,9 @@ declare namespace google.maps.maps3d {
     altitudeMode?: AltitudeModeValue;
     strokeColor?: string;
     strokeWidth?: number;
+    /** Casing color/width around the stroke (documented for maps3d v=beta). */
+    outerColor?: string;
+    outerWidth?: number;
     drawsOccludedSegments?: boolean;
   }
 
@@ -89,6 +92,8 @@ declare namespace google.maps.maps3d {
     altitudeMode: AltitudeModeValue;
     strokeColor: string;
     strokeWidth: number;
+    outerColor: string;
+    outerWidth: number;
     drawsOccludedSegments: boolean;
   }
 
