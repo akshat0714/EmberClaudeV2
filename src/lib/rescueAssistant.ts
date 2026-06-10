@@ -1,16 +1,18 @@
 /**
- * Text-only rescue assistant for the simulated evacuation.
+ * Text-only rescue assistant for the Help flow.
  *
- * The assistant NEVER controls the app: transport mode and accessibility are
- * parsed locally with keywords, routing/safety decisions come from the risk
- * model, and the LLM only phrases short conversational replies around the
- * structured context we hand it. When VITE_GEMINI_API_KEY is absent (or the
- * call fails/times out), a deterministic local template produces the reply,
- * so the demo never blocks on the network.
+ * The assistant NEVER controls the app: what the person has with them (car /
+ * bike / on foot, disability) is parsed locally with keywords, and the route
+ * + safety decisions come from the risk model. The LLM (Gemini, when
+ * VITE_GEMINI_API_KEY is set) only phrases short conversational replies
+ * around the structured context we hand it — including the qualitative
+ * directions ("head NORTH-EAST on E Las Virgenes Canyon Rd…") the model
+ * chose. When the key is absent or the call fails, a deterministic local
+ * template produces the reply, so the demo never blocks on the network.
  */
-import { EVAC_WORDING } from '../data/spreadModelConfig';
+import { HELP_WORDING } from '../data/spreadModelConfig';
 
-export type TransportMode = 'driving' | 'walking';
+export type TransportMode = 'car' | 'bike' | 'foot';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -18,11 +20,10 @@ export interface ChatMessage {
 }
 
 export type AssistantEvent =
-  | 'intro'
-  | 'mode-set'
-  | 'clarify-mode'
+  | 'ask-resource'
+  | 'clarify-resource'
+  | 'route-set'
   | 'reroute'
-  | 'dest-moved'
   | 'arrived'
   | 'no-route'
   | 'chat';
@@ -32,8 +33,13 @@ export interface AssistantContext {
   mode: TransportMode | null;
   accessibilityNote: string | null;
   userRisk: string | null;
+  /** Road the simulated GPS fix landed on. */
+  locationLabel: string;
+  /** Qualitative directions for the chosen route (roads + compass words). */
+  routeSummary: string | null;
+  /** The instruction for the step the person is currently on. */
+  currentStep: string | null;
   destinationName: string | null;
-  previousDestinationName?: string | null;
   etaMinutes: number | null;
   distanceKm: number | null;
   routeStatus: 'safe' | 'caution' | 'none' | null;
@@ -43,62 +49,84 @@ export interface AssistantContext {
 /** Local keyword parsing — deterministic, never delegated to the LLM. */
 export function parseTransportMode(text: string): TransportMode | null {
   const t = text.toLowerCase();
-  if (/\b(car|drive|driving|truck|suv|van|vehicle|motorcycle)\b/.test(t)) return 'driving';
-  if (/\b(walk|walking|foot|on foot|bike|biking|run|running)\b/.test(t)) return 'walking';
+  if (/\b(car|truck|suv|van|jeep|vehicle|drive|driving|motorcycle|motorbike)\b/.test(t)) {
+    return 'car';
+  }
+  if (/\b(bike|bicycle|cycle|cycling|e-?bike|scooter)\b/.test(t)) return 'bike';
+  if (
+    /\b(foot|walk|walking|run|running|hike|hiking|nothing|none|no car|don'?t have)\b/.test(t)
+  ) {
+    return 'foot';
+  }
   return null;
 }
 
 export function parseAccessibilityNote(text: string): string | null {
   const t = text.toLowerCase();
-  if (/\b(wheelchair|disabled|disability|elderly|injured|injury|crutch|cane|stroller|limited mobility|mobility)\b/.test(t)) {
+  if (
+    /\b(wheelchair|disabled|disability|handicap|elderly|injured|injury|hurt|crutch|crutches|cane|stroller|limited mobility|mobility|can'?t walk|cannot walk|slow)\b/.test(
+      t,
+    )
+  ) {
     return 'limited mobility';
   }
   return null;
 }
 
-function describeRoute(ctx: AssistantContext): string {
-  if (!ctx.destinationName || ctx.etaMinutes === null) return '';
-  const verb = ctx.mode === 'walking' ? 'on foot' : 'by car';
-  const dist = ctx.distanceKm !== null ? `, ${ctx.distanceKm.toFixed(1)} km` : '';
-  return `Head to ${ctx.destinationName} ${verb} — about ${Math.max(1, Math.round(ctx.etaMinutes))} min${dist}.`;
+function modeVerb(mode: TransportMode | null): string {
+  if (mode === 'car') return 'Drive';
+  if (mode === 'bike') return 'Ride';
+  return 'Move';
+}
+
+function etaPhrase(ctx: AssistantContext): string {
+  if (ctx.etaMinutes === null) return '';
+  const minutes = Math.max(1, Math.round(ctx.etaMinutes));
+  const dist = ctx.distanceKm !== null ? ` (${ctx.distanceKm.toFixed(1)} km)` : '';
+  return ` About ${minutes} min${dist} to the safe zone.`;
 }
 
 /** Deterministic fallback replies (also the offline/demo-safe path). */
 export function localAssistantReply(ctx: AssistantContext, userMessage?: string | null): string {
   void userMessage;
   switch (ctx.event) {
-    case 'intro':
+    case 'ask-resource':
       return (
-        'Simulated rescue assistant here — this is a model-based demo, not official emergency guidance. ' +
-        'You are near the modeled fire. Do you have a car, or are you on foot? Any mobility needs?'
+        `I found you on ${ctx.locationLabel}, inside the modeled fire-risk area — we need to get you moving. ` +
+        'What do you have with you: a car, a bike, or are you on foot? And tell me if a disability or injury slows you down.'
       );
-    case 'clarify-mode':
-      return 'Sorry — to suggest a route I need to know: do you have a car, or are you on foot?';
-    case 'mode-set':
-      return `${describeRoute(ctx)} Start moving now — I will keep watching the modeled spread and update your route. ${EVAC_WORDING.modelBased}`;
+    case 'clarify-resource':
+      return 'Sorry — to pick the right way out I need to know: do you have a car, a bike, or are you on foot? If you have a disability, say so and I will plan for extra time.';
+    case 'route-set': {
+      const pace = ctx.accessibilityNote ? ' at your own steady pace' : '';
+      return (
+        `${modeVerb(ctx.mode)}${pace} ${ctx.routeSummary ?? 'along the highlighted road'}.` +
+        `${etaPhrase(ctx)} Follow the blue path on the map — I am watching the modeled spread and will redirect you if it changes.`
+      );
+    }
     case 'reroute':
-      return `Your previous route is no longer low-risk in the model. New route: ${describeRoute(ctx)}`;
-    case 'dest-moved':
-      return `The modeled spread now threatens ${ctx.previousDestinationName ?? 'your safe zone'}. Safe zone moved: ${describeRoute(ctx)}`;
+      return `Change of plan — the modeled spread now threatens your previous route. New way out: ${ctx.routeSummary ?? 'follow the updated blue path'}.${etaPhrase(ctx)}`;
     case 'arrived':
-      return 'You have reached the simulated safe zone. Stay alert and follow local authorities and emergency alerts.';
+      return 'You made it — you are at the safe zone, clear of the modeled fire area. Stay there and follow official instructions. (Simulated demo.)';
     case 'no-route':
-      return EVAC_WORDING.statusNone;
+      return `${HELP_WORDING.statusNone} ${HELP_WORDING.emergency}`;
     case 'chat':
     default: {
-      const route = describeRoute(ctx);
-      return route
-        ? `${route} Keep moving away from the fire. ${EVAC_WORDING.modelBased}`
-        : 'I am watching the modeled fire around you. Tell me if you have a car or are on foot, and I will suggest a route.';
+      if (ctx.currentStep) {
+        return `${ctx.currentStep}${etaPhrase(ctx)} Keep following the blue path.`;
+      }
+      return 'I am watching the modeled fire around you. Tell me if you have a car, a bike, or are on foot, and I will pick the safest way out.';
     }
   }
 }
 
 const SYSTEM_PROMPT = `You are a calm wildfire evacuation assistant inside a SIMULATED demo (the "Kenneth Fire" reconstruction). Rules:
 - Reply with plain text only, 1–3 short sentences. No lists, no markdown, no emojis.
-- You only describe and explain; the app computes routes and safety. Use ONLY the context facts given — never invent road names, closures, shelters, or fire positions.
-- This is model-based decision support, not official emergency guidance; say so when reassuring the user, and tell anyone in immediate danger to call emergency services and follow official alerts.
-- Never promise an "exact" or "guaranteed safe" route — say "suggested route" / "avoids modeled fire-risk zones".`;
+- You only describe and explain; the app computes the route and safety. Use ONLY the context facts given — never invent road names, closures, shelters, or fire positions.
+- Always give directions qualitatively: the compass direction plus the road name from the context, e.g. "head NORTH-EAST on E Las Virgenes Canyon Rd".
+- When asking what the person has, ask about: a car, a bike, on foot, and whether a disability or injury slows them down.
+- This is model-based decision support, not official emergency guidance; tell anyone in immediate danger to call 911 and follow official alerts.
+- Never promise an "exact" or "guaranteed safe" route — say "suggested route" / "avoids the modeled fire-risk zones".`;
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const GEMINI_TIMEOUT_MS = 6000;
@@ -106,11 +134,13 @@ const GEMINI_TIMEOUT_MS = 6000;
 function contextBlock(ctx: AssistantContext): string {
   return [
     `EVENT: ${ctx.event}`,
-    `transport: ${ctx.mode ?? 'unknown'}`,
+    `person located on: ${ctx.locationLabel}`,
+    `has: ${ctx.mode ?? 'unknown yet'}`,
     ctx.accessibilityNote ? `accessibility: ${ctx.accessibilityNote}` : null,
-    `user risk: ${ctx.userRisk ?? 'unknown'}`,
+    `person risk: ${ctx.userRisk ?? 'unknown'}`,
+    ctx.routeSummary ? `route directions: ${ctx.routeSummary}` : 'route directions: none yet',
+    ctx.currentStep ? `current step: ${ctx.currentStep}` : null,
     `destination: ${ctx.destinationName ?? 'none yet'}`,
-    ctx.previousDestinationName ? `previous destination: ${ctx.previousDestinationName}` : null,
     ctx.etaMinutes !== null ? `eta minutes: ${Math.round(ctx.etaMinutes)}` : null,
     ctx.distanceKm !== null ? `distance km: ${ctx.distanceKm.toFixed(1)}` : null,
     `route status: ${ctx.routeStatus ?? 'none'}`,

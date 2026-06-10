@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import EvacuationMode from './components/EvacuationMode';
-import FireScene, { type EvacuationView } from './components/FireScene';
+import HelpMode from './components/HelpMode';
+import FireScene, { type RescueView } from './components/FireScene';
 import InfoPanel, { type StructureStatus } from './components/InfoPanel';
 import TimelineControls, { type TimelineStage } from './components/TimelineControls';
-import { useEvacuationController } from './lib/evacuationRouting';
+import { useHelpController } from './lib/helpController';
 import type { FireRiskSnapshot } from './lib/fireRiskGeometry';
 import type { ModelSummary } from './lib/spreadDrivers';
 import {
@@ -120,20 +120,19 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
     horizonMinutes: PREDICTION_ZONE.primaryMinutes,
   });
   const [risk, setRisk] = useState<FireRiskSnapshot | null>(null);
-  const evacuation = useEvacuationController(risk, clock.time);
+  const help = useHelpController(risk, clock.time, clock.replay);
 
   // The rescue sim drives the shared world clock: real time while the person
-  // is replying, fast-forward otherwise.
+  // is replying, fast-forward while they move, default playback once safe.
   useEffect(() => {
-    clock.setRateOverride(evacuation.state.enabled ? evacuation.state.clockRate : null);
-  }, [clock.setRateOverride, evacuation.state.enabled, evacuation.state.clockRate]);
+    clock.setRateOverride(help.state.enabled ? help.state.clockRate : null);
+  }, [clock.setRateOverride, help.state.enabled, help.state.clockRate]);
 
-  const evacuationView: EvacuationView = {
-    active: evacuation.state.enabled,
-    fix: evacuation.state.fix,
-    picking: evacuation.state.picking,
-    routePath: evacuation.state.best?.candidate.path ?? null,
-    destination: evacuation.state.best?.candidate.destination ?? null,
+  const rescueView: RescueView = {
+    active: help.state.enabled,
+    fix: help.state.fix,
+    routePath: help.state.guidance?.path ?? null,
+    destination: help.state.guidance?.route.destination ?? null,
   };
 
   const timelineStages = useMemo<TimelineStage[]>(
@@ -180,7 +179,7 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
         time={clock.time}
         onModelUpdate={setModel}
         onRiskSnapshot={setRisk}
-        evacuation={evacuationView}
+        rescue={rescueView}
       />
       <div className="edge-fade" aria-hidden="true" />
 
@@ -190,7 +189,7 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
         <p className="tagline">{APP_TAGLINE}</p>
       </header>
 
-      <EvacuationMode state={evacuation.state} actions={evacuation.actions} />
+      <HelpMode state={help.state} actions={help.actions} />
 
       <InfoPanel
         time={clock.time}

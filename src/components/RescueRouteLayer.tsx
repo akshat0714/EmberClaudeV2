@@ -1,24 +1,25 @@
 /**
- * Suggested evacuation route on the 3D map: a bright blue Google-Maps-style
- * path (white casing + blue line, draped on terrain) and a green safe-zone
- * marker labelled with the simulated destination name. Flies the camera to
- * frame the route when the destination changes.
+ * The suggested way out on the 3D map: a bright blue Google-Maps-style path
+ * (white casing + blue line, draped on terrain along the authored road
+ * geometry) and a green-highlighted safe zone with a labelled marker at the
+ * destination. Flies the camera to frame the whole escape when the route
+ * appears or changes.
  */
 import { useEffect, useRef } from 'react';
-import type { SafeDestination } from '../data/demoEvacuationData';
+import type { SafeDestination } from '../data/helpScenario';
 import { bearingDeg, circleRing, pathLengthM } from '../lib/fireRiskGeometry';
 import type { LatLng } from '../lib/interpolatePolygon';
 import { customizePins, makeMarker, setMarkerLabel } from '../lib/markerUtils';
 import type { SceneHandle } from './FireScene';
 
 const TRANSPARENT = 'rgba(0, 0, 0, 0)';
-const ROUTE_CASING = 'rgba(255, 255, 255, 0.65)';
-const ROUTE_BLUE = 'rgba(26, 115, 232, 0.95)';
-const SAFE_ZONE_FILL = 'rgba(24, 128, 56, 0.22)';
-const SAFE_ZONE_STROKE = 'rgba(52, 168, 83, 0.92)';
+const ROUTE_CASING = 'rgba(255, 255, 255, 0.7)';
+const ROUTE_BLUE = 'rgba(26, 115, 232, 0.96)';
+const SAFE_ZONE_FILL = 'rgba(24, 128, 56, 0.24)';
+const SAFE_ZONE_STROKE = 'rgba(52, 168, 83, 0.95)';
 const SAFE_ZONE_RADIUS_M = 170;
 
-interface EvacuationRouteLayerProps {
+interface RescueRouteLayerProps {
   scene: SceneHandle;
   routePath: LatLng[] | null;
   destination: SafeDestination | null;
@@ -31,11 +32,11 @@ interface Elements {
   marker: google.maps.maps3d.Marker3DElement;
 }
 
-export default function EvacuationRouteLayer({
+export default function RescueRouteLayer({
   scene,
   routePath,
   destination,
-}: EvacuationRouteLayerProps) {
+}: RescueRouteLayerProps) {
   const elementsRef = useRef<Elements | null>(null);
   const framedDestinationRef = useRef<string | null>(null);
 
@@ -56,14 +57,14 @@ export default function EvacuationRouteLayer({
       altitudeMode: scene.clampMode,
       fillColor: TRANSPARENT,
       strokeColor: TRANSPARENT,
-      strokeWidth: 2,
+      strokeWidth: 2.5,
       extruded: false,
       drawsOccludedSegments: false,
     });
     scene.map.append(safeZone);
     const elements: Elements = {
-      casing: makeLine(8),
-      line: makeLine(5),
+      casing: makeLine(9),
+      line: makeLine(5.5),
       safeZone,
       marker,
     };
@@ -86,6 +87,7 @@ export default function EvacuationRouteLayer({
       elements.safeZone.fillColor = TRANSPARENT;
       elements.safeZone.strokeColor = TRANSPARENT;
       elements.marker.remove();
+      framedDestinationRef.current = null;
       return;
     }
     elements.casing.coordinates = routePath;
@@ -100,7 +102,7 @@ export default function EvacuationRouteLayer({
     setMarkerLabel(elements.marker, destination.name);
     if (!elements.marker.isConnected) scene.map.append(elements.marker);
 
-    // Frame the route once per destination so judges see origin + safe zone.
+    // Frame the route once per destination so the person + safe zone fit.
     if (framedDestinationRef.current !== destination.id) {
       framedDestinationRef.current = destination.id;
       const start = routePath[0];

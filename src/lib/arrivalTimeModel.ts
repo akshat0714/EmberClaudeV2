@@ -11,7 +11,8 @@
  *               + windAlignmentBonus      (downwind travel is much faster)
  *               + uphillSlopeBonus        (flames preheat upslope fuel)
  *               + canyonChannelBonus      (terrain funnels wind along canyons)
- *               then × barrierPenalty     (developed blocks nearly stop spread)
+ *               then × fuelPatchiness     (deterministic position noise → lobes)
+ *               and  × barrierPenalty     (developed blocks nearly stop spread)
  *               and  × structureAdjacencyModifier (WUI fringe slows slightly)
  *
  *   travelTime = stepDistance / spreadSpeed
@@ -72,6 +73,46 @@ const SW_DRAIN = lineFeature(34.186, -118.67, 34.176, -118.7, 220); // drainage 
 const LASKY_MESA = { lat: 34.1765, lng: -118.688, radiusM: 520, heightM: 40 };
 const CASTLE_PEAK = { lat: 34.179, lng: -118.66, radiusM: 260, heightM: 55 };
 
+// ---- deterministic fuel/terrain patchiness ----
+// Real fuel beds are a patchwork of grass openings, brush pockets and rock,
+// so spread speed varies by POSITION. Two octaves of fixed-seed value noise
+// give every grid cell a stable local multiplier — the front and the
+// predicted zone grow distinct, differently-shaped lobes in different
+// places (mountains, canyon mouths, the city fringe) instead of one
+// uniform oval. Nothing is random per frame: same position, same value.
+
+function hash01(ix: number, iy: number): number {
+  const s = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453123;
+  return s - Math.floor(s);
+}
+
+function smooth01(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
+function valueNoise(x: number, y: number, scaleM: number): number {
+  const gx = x / scaleM;
+  const gy = y / scaleM;
+  const ix = Math.floor(gx);
+  const iy = Math.floor(gy);
+  const fx = smooth01(gx - ix);
+  const fy = smooth01(gy - iy);
+  const a = hash01(ix, iy);
+  const b = hash01(ix + 1, iy);
+  const c = hash01(ix, iy + 1);
+  const d = hash01(ix + 1, iy + 1);
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+}
+
+/** Local fuel-patchiness speed multiplier (~1±patchAmp), deterministic. */
+export function patchinessAt(x: number, y: number): number {
+  const n =
+    0.62 * valueNoise(x, y, SPEEDS.patchScaleM) +
+    0.38 * valueNoise(x + 911, y - 347, SPEEDS.patchFineScaleM);
+  const m = 1 + SPEEDS.patchAmp * (n * 2 - 1);
+  return Math.min(Math.max(m, 0.4), 1.7);
+}
+
 /** True where streets/structures dominate (West Hills, Hidden Hills, Bell Canyon). */
 export function isDeveloped(lat: number, lng: number): boolean {
   if (lng > -118.6648) return true; // West Hills residential grid
@@ -128,6 +169,8 @@ export interface TerrainGrid {
   gradY: Float32Array;
   /** 0..1 burnable fuel (grass/chaparral = 1, developed ≈ 0.15). */
   fuel: Float32Array;
+  /** Local fuel-patchiness speed multiplier (deterministic noise). */
+  patch: Float32Array;
   developed: Uint8Array;
   /** Wildland fringe within ~160 m of development (structure-adjacent). */
   wui: Uint8Array;
@@ -159,6 +202,7 @@ export function getTerrainGrid(): TerrainGrid {
     gradX: new Float32Array(n),
     gradY: new Float32Array(n),
     fuel: new Float32Array(n),
+    patch: new Float32Array(n),
     developed: new Uint8Array(n),
     wui: new Uint8Array(n),
     canyon: new Float32Array(n),
@@ -193,6 +237,7 @@ export function getTerrainGrid(): TerrainGrid {
 
       // canyon channeling: strongest nearby canyon wins
       const { x, y } = toXY(lat, lng);
+      g.patch[i] = patchinessAt(x, y);
       const sCreek = gauss(distToSegment(x, y, LV_CREEK) / LV_CREEK.halfWidthM);
       const sDrain = gauss(distToSegment(x, y, SW_DRAIN) / SW_DRAIN.halfWidthM);
       if (sCreek >= sDrain) {
@@ -269,6 +314,10 @@ export function stepSpeed(g: TerrainGrid, to: number, dirX: number, dirY: number
   // Canyon channeling: terrain funnels wind and convection along canyon axes.
   const canyonDot = Math.abs(dirX * g.canDirX[to] + dirY * g.canDirY[to]);
   speed *= 1 + SPEEDS.canyonFactor * g.canyon[to] * canyonDot;
+
+  // Fuel patchiness: position-dependent multiplier so growth is lobed and
+  // irregular rather than uniform.
+  speed *= g.patch[to];
 
   // Roads / developed-edge resistance, and the slightly-slowed WUI fringe.
   if (g.developed[to]) speed *= SPEEDS.developedFactor;

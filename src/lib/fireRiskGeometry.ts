@@ -103,32 +103,65 @@ export function nearestIndexOnPath(path: LatLng[], p: LatLng): number {
   return best;
 }
 
-/** Walk `stepM` metres forward along a path from a start index. */
-export function advanceAlongPath(
+/**
+ * Project a point onto a path: the segment it sits on and the arc length
+ * from the path start. Movement along a path must use arc length (not the
+ * nearest vertex) so progress is monotone even between sparse vertices.
+ */
+export function projectOnPath(path: LatLng[], p: LatLng): { segIndex: number; alongM: number } {
+  let bestD = Infinity;
+  let bestSeg = 0;
+  let bestAlong = 0;
+  let acc = 0;
+  for (let i = 0; i + 1 < path.length; i++) {
+    const a = path[i];
+    const b = path[i + 1];
+    const ax = (a.lng - p.lng) * M_PER_DEG_LNG;
+    const ay = (a.lat - p.lat) * M_PER_DEG_LAT;
+    const bx = (b.lng - p.lng) * M_PER_DEG_LNG;
+    const by = (b.lat - p.lat) * M_PER_DEG_LAT;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    const t = lenSq > 0 ? Math.min(Math.max(-(ax * dx + ay * dy) / lenSq, 0), 1) : 0;
+    const d = Math.hypot(ax + dx * t, ay + dy * t);
+    const segLen = Math.sqrt(lenSq);
+    if (d < bestD) {
+      bestD = d;
+      bestSeg = i;
+      bestAlong = acc + segLen * t;
+    }
+    acc += segLen;
+  }
+  return { segIndex: bestSeg, alongM: bestAlong };
+}
+
+/** Point at arc length `alongM` from the path start (clamped to the ends). */
+export function pointAtArc(
   path: LatLng[],
-  fromIndex: number,
-  stepM: number,
-): { point: LatLng; index: number; headingDeg: number | null; atEnd: boolean } {
-  let remaining = stepM;
-  let i = Math.min(Math.max(fromIndex, 0), path.length - 1);
-  let current = path[i];
-  while (i + 1 < path.length && remaining > 0) {
-    const next = path[i + 1];
-    const segLen = distMeters(current, next);
-    if (segLen > remaining) {
+  alongM: number,
+): { point: LatLng; headingDeg: number | null; atEnd: boolean } {
+  let remaining = Math.max(alongM, 0);
+  for (let i = 0; i + 1 < path.length; i++) {
+    const a = path[i];
+    const b = path[i + 1];
+    const segLen = distMeters(a, b);
+    if (remaining <= segLen && segLen > 0) {
       const t = remaining / segLen;
-      const point = {
-        lat: current.lat + (next.lat - current.lat) * t,
-        lng: current.lng + (next.lng - current.lng) * t,
+      return {
+        point: { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t },
+        headingDeg: bearingDeg(a, b),
+        atEnd: false,
       };
-      return { point, index: i, headingDeg: bearingDeg(current, next), atEnd: false };
     }
     remaining -= segLen;
-    current = next;
-    i++;
   }
-  const heading = i > 0 ? bearingDeg(path[i - 1], path[i]) : null;
-  return { point: path[path.length - 1], index: path.length - 1, headingDeg: heading, atEnd: true };
+  const last = path.length - 1;
+  return {
+    point: path[last],
+    headingDeg: last > 0 ? bearingDeg(path[last - 1], path[last]) : null,
+    atEnd: true,
+  };
 }
 
 /** Move a point by `meters` along a compass bearing. */

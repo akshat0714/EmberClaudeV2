@@ -93,7 +93,7 @@ export default function InfoPanel({
         <ul className="legend">
           <li>
             <span className="swatch swatch-burned" />
-            <span>Burned / reached terrain (reconstruction)</span>
+            <span>Burned — already covered by fire (darker = older)</span>
           </li>
           <li>
             <span className="swatch swatch-history" />

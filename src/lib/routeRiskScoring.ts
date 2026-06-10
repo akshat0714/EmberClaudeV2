@@ -8,9 +8,10 @@
  * Hard rules (route REJECTED):
  *  - any sample inside the current fire polygon
  *  - any sample within the front buffer
- *  - entering (or re-entering) the predicted envelope after the initial
- *    escape segment — if the user starts inside the modeled risk area, the
- *    route may pass through it only while continuously escaping
+ *  - touching the predicted envelope after the initial ESCAPE WINDOW (the
+ *    first escapeWindowM of the route): leaving an at-risk start may weave
+ *    along or through the envelope while getting clear, but the route may
+ *    never lead back into predicted danger once past that window
  *  - a destination inside the envelope
  *
  * Soft penalties (score; lower is better): duration, distance, proximity to
@@ -19,9 +20,9 @@
  * initial escape segment. These never legitimize a hard-rejected route, and
  * if every candidate is rejected the app says so instead of faking safety.
  */
-import { EVACUATION } from '../data/spreadModelConfig';
+import { HELP_CONFIG } from '../data/spreadModelConfig';
 import { cellIndexAt, getTerrainGrid } from './arrivalTimeModel';
-import type { SafeDestination } from '../data/demoEvacuationData';
+import type { SafeDestination } from '../data/helpScenario';
 import {
   bearingDeg,
   distToPolylineM,
@@ -38,7 +39,7 @@ export interface RouteCandidate {
   path: LatLng[];
   distanceM: number;
   durationS: number;
-  source: 'google' | 'synthetic';
+  source: 'authored';
 }
 
 export type RouteStatus = 'safe' | 'caution' | 'rejected';
@@ -58,15 +59,16 @@ export type UserRiskClass = 'in-fire' | 'near-front' | 'in-envelope' | 'clear';
 
 export function classifyUserRisk(point: LatLng, snapshot: FireRiskSnapshot): UserRiskClass {
   if (pointInRing(point, snapshot.frontRing)) return 'in-fire';
-  if (distToRingM(point, snapshot.frontRing) < EVACUATION.frontBufferM) return 'near-front';
+  if (distToRingM(point, snapshot.frontRing) < HELP_CONFIG.frontBufferM) return 'near-front';
   if (snapshot.envelopeRing && pointInRing(point, snapshot.envelopeRing)) return 'in-envelope';
   return 'clear';
 }
 
 export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot): ScoredRoute {
   const reasons: string[] = [];
-  const samples = resamplePath(candidate.path, EVACUATION.sampleStepM);
+  const samples = resamplePath(candidate.path, HELP_CONFIG.sampleStepM);
   const grid = getTerrainGrid();
+  const escapeWindowSamples = Math.ceil(HELP_CONFIG.escapeWindowM / HELP_CONFIG.sampleStepM);
 
   let minFrontDistM = Infinity;
   let minEnvelopeDistM = Infinity;
@@ -75,6 +77,7 @@ export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot
   let rejected = false;
   let tendrilHits = 0;
   let towardFireSum = 0;
+  let downwindSum = 0;
   let canyonSum = 0;
   let nearCount = 0;
 
@@ -105,7 +108,7 @@ export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot
       reasons.push('crosses current modeled fire area');
       break;
     }
-    if (frontDist < EVACUATION.frontBufferM) {
+    if (frontDist < HELP_CONFIG.frontBufferM) {
       // Only tolerable while still escaping the immediate origin area.
       if (escaped || i > 0) {
         rejected = true;
@@ -115,12 +118,12 @@ export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot
     }
 
     if (insideEnvelope) {
-      if (escaped) {
+      if (escaped && i > escapeWindowSamples) {
         rejected = true;
         reasons.push('crosses the predicted fire-risk envelope');
         break;
       }
-      escapeM += EVACUATION.sampleStepM;
+      escapeM += HELP_CONFIG.sampleStepM;
     } else {
       escaped = true;
     }
@@ -132,7 +135,7 @@ export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot
     }
     if (envDist < 1500 && i + 1 < samples.length) {
       for (const tendril of snapshot.tendrils) {
-        if (distToPolylineM(p, tendril) < EVACUATION.tendrilBufferM) {
+        if (distToPolylineM(p, tendril) < HELP_CONFIG.tendrilBufferM) {
           tendrilHits++;
           break;
         }
@@ -141,6 +144,12 @@ export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot
       const toFire = bearingDeg(p, snapshot.fireCentroid);
       const diff = Math.abs(((travel - toFire + 540) % 360) - 180);
       if (diff > 135) towardFireSum += 1; // heading within ±45° of the fire
+      // Fleeing DOWNWIND means running where the wind is carrying the fire —
+      // the head of a wind-driven fire outruns people. Penalize alignment
+      // between travel and the spread bearing while near the risk area.
+      const windAngle =
+        ((((travel - snapshot.windBearingDeg + 540) % 360) - 180) * Math.PI) / 180;
+      downwindSum += Math.max(0, Math.cos(windAngle));
       canyonSum += grid.canyon[cellIndexAt(grid, p.lat, p.lng)];
     }
   }
@@ -159,18 +168,19 @@ export function scoreRoute(candidate: RouteCandidate, snapshot: FireRiskSnapshot
 
   const distanceM = candidate.distanceM || pathLengthM(candidate.path);
   const durationMin = (candidate.durationS || (distanceM / 1000) * 90) / 60;
-  const w = EVACUATION.score;
+  const w = HELP_CONFIG.score;
   const score =
     durationMin * w.perMinute +
     (distanceM / 1000) * w.perKm +
     (nearCount / Math.max(samples.length, 1)) * 100 * (w.envelopeProximity / 6) +
     tendrilHits * w.tendrilCross +
     (towardFireSum / Math.max(samples.length, 1)) * 100 * (w.towardFire / 3) +
+    (downwindSum / Math.max(samples.length, 1)) * 100 * (w.downwind / 3) +
     (canyonSum / Math.max(samples.length, 1)) * 100 * (w.canyon / 1.5) * 0.1 +
     (escapeM / 1000) * w.escapePerKm;
 
   const status: RouteStatus =
-    escapeM > 0 || minEnvelopeDistM < EVACUATION.envelopeCautionM ? 'caution' : 'safe';
+    escapeM > 0 || minEnvelopeDistM < HELP_CONFIG.envelopeCautionM ? 'caution' : 'safe';
   if (status === 'caution') reasons.push('route passes near the modeled fire-risk area');
 
   return { candidate, status, score, reasons, minFrontDistM, minEnvelopeDistM, escapeM };

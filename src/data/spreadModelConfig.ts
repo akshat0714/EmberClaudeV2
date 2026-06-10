@@ -31,21 +31,37 @@ export const SPEEDS = {
   /** Head-rate multiplier per unit of effective wind-slope number U. */
   headWindFactor: 1.05,
   /** Upslope contribution to the effective wind-slope vector (Rothermel-style:
-   *  slope acts like added wind pointing uphill). */
-  slopeWindEquivalent: 0.9,
+   *  slope acts like added wind pointing uphill). Raised so the fire visibly
+   *  stretches UPHILL on the ridges and peaks — mountain terrain grows its
+   *  own differently-oriented lobes, independent of the wind direction. */
+  slopeWindEquivalent: 1.25,
   /** Ellipse length-to-breadth = 1 + lbPerU·U (simplified after Anderson
    *  1983), clamped for heterogeneous terrain. */
   lbPerU: 0.8,
   lbMin: 1.15,
   lbMax: 2.6,
-  /** Channeling multiplier strength along canyon/drainage axes. */
-  canyonFactor: 0.5,
-  /** Multiplier inside developed blocks: roads, irrigation, structure defense. */
-  developedFactor: 0.12,
-  /** Multiplier in the wildland fringe right against structures (WUI edge). */
-  wuiFactor: 0.8,
+  /** Channeling multiplier strength along canyon/drainage axes — long thin
+   *  runs down the canyons, a different shape than the broad wind head. */
+  canyonFactor: 0.8,
+  /** Multiplier inside developed blocks: roads, irrigation, structure defense
+   *  still dominate, but slow creep along the city edge stays visible. */
+  developedFactor: 0.18,
+  /** Multiplier in the wildland fringe right against structures (WUI edge):
+   *  near-normal speed, so the footprint flattens and widens along the city
+   *  rather than stopping in a clean line. */
+  wuiFactor: 0.92,
   minSpeed: 0.25,
   maxSpeed: 30,
+  /**
+   * Deterministic fuel/terrain patchiness (value noise, fixed seed): real
+   * fuel beds are a patchwork of grass openings, brush pockets and rock, so
+   * local speed varies by POSITION — the front and the predicted zone grow
+   * distinct, differently-shaped lobes in different places instead of one
+   * uniform oval. amp 0.5 → local multiplier ranges ~0.5×..1.5×.
+   */
+  patchAmp: 0.5,
+  patchScaleM: 420,
+  patchFineScaleM: 150,
 };
 
 /** Modeled area around the fire (covers the preserve and bordering streets). */
@@ -109,16 +125,16 @@ export const WIND_STREAMS = {
   width: 1.2,
 };
 
-/** Burned-history styling: terrain must stay clearly visible underneath.
- *  Fire core (just reached) reads deep crimson — the most intense area —
- *  fading through red-brown to a transparent charcoal for old burned. */
+/** Burned-history styling: everything the fire has already covered paints
+ *  as unmistakable DARK RED, deepening as the burn ages, while terrain and
+ *  roads stay readable underneath. */
 export const BURNED_STYLE = {
-  /** Region currently being overrun (behind the advancing front). */
-  activeFill: 'rgba(150, 32, 20, 0.26)',
-  /** Age ramp: [fire core / just reached, one stage back, old burned]. */
-  ageRamp: ['rgba(120, 26, 18, 0.30)', 'rgba(92, 30, 20, 0.25)', 'rgba(58, 26, 18, 0.20)'],
+  /** Region currently being overrun (just behind the advancing front). */
+  activeFill: 'rgba(168, 24, 12, 0.34)',
+  /** Age ramp: [just burned, one stage back, old burn] — darker with age. */
+  ageRamp: ['rgba(140, 16, 10, 0.46)', 'rgba(106, 11, 7, 0.52)', 'rgba(74, 8, 5, 0.56)'],
   /** Faint historical arrival contours (past stage boundaries). */
-  historyStroke: 'rgba(150, 55, 40, 0.4)',
+  historyStroke: 'rgba(185, 48, 30, 0.42)',
   historyStrokeWidth: 1,
 };
 
@@ -137,12 +153,18 @@ export const FRONT_STYLE = {
 export const WARP = {
   /** Frontier sample count around the active front. */
   vertices: 224,
-  /** Exponent for the fastest frontier points (advance earliest). */
-  gammaFast: 0.5,
+  /** Exponent for the fastest frontier points (advance earliest). Widened
+   *  range = tongues surge much earlier and resisted edges stall much
+   *  longer, so the front takes on strongly different shapes by position. */
+  gammaFast: 0.36,
   /** Exponent for the slowest frontier points (advance last). */
-  gammaSlow: 2.2,
-  /** Ring-neighbor smoothing passes so the front stays one coherent shape. */
-  smoothPasses: 2,
+  gammaSlow: 3.2,
+  /** Ring-neighbor smoothing passes — one pass keeps the front coherent
+   *  while letting the model's local differences stay visibly ragged. */
+  smoothPasses: 1,
+  /** Deterministic per-vertex shape noise (position-hashed, stable between
+   *  refreshes): adds fuel-patch raggedness on top of the model ranking. */
+  shapeJitter: 0.45,
   /** Propagation cap when ranking target-vertex travel times. */
   capMinutes: 160,
 };
@@ -172,9 +194,10 @@ export const PATHWAY_STYLE = {
   originSeparationMeters: 240,
 };
 
-/** Evacuation routing: buffers, scoring weights and update cadence.
- *  All outputs are model-based suggestions, never official guidance. */
-export const EVACUATION = {
+/** Help rescue flow: buffers, scoring weights, movement speeds and the
+ *  shared world clock. All outputs are model-based suggestions, never
+ *  official guidance. */
+export const HELP_CONFIG = {
   /** Route samples closer than this to the active front are hard-rejected. */
   frontBufferM: 250,
   /** Route samples closer than this to a fire tendril are penalized hard. */
@@ -183,22 +206,12 @@ export const EVACUATION = {
   envelopeCautionM: 400,
   /** Sampling step along candidate routes. */
   sampleStepM: 60,
-  /** GPS accuracy above this shows the "Location accuracy is low." note. */
-  lowAccuracyM: 75,
-  /** Demo-drive step per second along the suggested route. */
-  demoDriveStepM: 230,
-  /** Demo "move toward fire" nudge. */
-  demoNudgeM: 220,
-  reroute: {
-    /** Re-route when the user moves at least this far from the route origin. */
-    moveThresholdM: 120,
-    /** Re-route when the user strays this far off the suggested route. */
-    deviationM: 150,
-    /** Periodic re-route while evacuation mode is on. */
-    minIntervalMs: 15000,
-    /** Floor between network routing calls. */
-    networkFloorMs: 4000,
-  },
+  /** Initial stretch of a route that may weave along/through the predicted
+   *  envelope while getting clear of an at-risk start; beyond it, touching
+   *  the envelope hard-rejects the route. */
+  escapeWindowM: 900,
+  /** Simulated GPS lock-on time after pressing Help. */
+  locatingMs: 2600,
   score: {
     perMinute: 1,
     perKm: 0.4,
@@ -206,50 +219,60 @@ export const EVACUATION = {
     envelopeProximity: 6,
     /** Penalty per route sample that crosses a tendril buffer. */
     tendrilCross: 8,
-    /** Penalty weight for driving toward the fire while near the envelope. */
+    /** Penalty weight for moving toward the fire while near the envelope. */
     towardFire: 3,
+    /** Penalty weight for fleeing DOWNWIND (where the wind is carrying the
+     *  fire) while near the risk area — the head outruns people. */
+    downwind: 6,
     /** Penalty weight for riding canyon corridors near the envelope. */
     canyon: 1.5,
     /** Penalty per km spent escaping out of the risk area at the start. */
     escapePerKm: 10,
   },
-  /** A destination must keep these margins or it is relocated. */
+  /** A destination must keep these margins from the modeled risk. */
   destination: {
     frontMarginM: 600,
     envelopeMarginM: 300,
   },
   /** World-time movement speeds for the simulated person (m per fire-second). */
   movement: {
-    drivingMps: 11, // ~40 km/h evacuation traffic
-    walkingMps: 1.4,
-    limitedMps: 1.0, // reduced mobility
+    carMps: 10, // ~36 km/h on the dirt road / evacuation traffic
+    bikeMps: 4.2, // ~15 km/h
+    footMps: 1.4, // ~5 km/h brisk walk
+    limitedMps: 0.9, // disability / reduced mobility
   },
   /**
-   * Rescue-sim clock: the fire and the person share one world clock.
-   * While the person is chatting (responding in real time) the world runs in
-   * real time (1 fire-minute = 1 real minute); otherwise it fast-forwards
-   * (1 fire-minute = 1 real second).
+   * Shared world clock: the fire and the person run on one clock. While the
+   * person is replying in chat the world runs in real time (1 fire-minute =
+   * 1 real minute); once they are moving it fast-forwards (1 fire-minute =
+   * 1 real second). After arrival the app's normal demo speed resumes.
    */
   clock: {
     fastRate: 60,
     realRate: 1,
-    chatGraceMs: 8000,
+    chatGraceMs: 6000,
   },
 };
 
-/** Exact evacuation wording (decision-support honesty). */
-export const EVAC_WORDING = {
-  title: 'Suggested evacuation route',
-  modelBased: 'Model-based route. Follow local authorities.',
+/** Exact Help-flow wording (decision-support honesty). */
+export const HELP_WORDING = {
+  title: 'Evacuation help',
+  buttonIdle: 'Help — I need to evacuate',
+  buttonActive: 'End help session',
+  locating: 'Locating your GPS position…',
+  located: 'GPS position found',
+  statusAsk: 'Waiting for your reply…',
+  statusRouting: 'Choosing the safest way out…',
+  statusSafe: 'Route is clear of the modeled fire zones',
+  statusCaution: 'Route passes near the modeled fire-risk area — keep moving',
+  statusNone:
+    'No modeled low-risk route found. Follow official evacuation instructions immediately.',
+  arrived: 'Reached the safe zone (simulated) — clear of the modeled fire area.',
+  modelBased: 'Model-based guidance. Follow local authorities.',
   notOfficial: 'Not official emergency guidance.',
-  emergency: 'If you are in immediate danger, call emergency services and follow official alerts.',
-  statusClear: 'Clear of modeled 30-min fire zone',
-  statusNear: 'Route is near modeled fire-risk area',
-  statusNone: 'No modeled low-risk route found. Follow official evacuation instructions immediately.',
-  lowAccuracy: 'Location accuracy is low.',
-  locationExplainer:
-    'Your location stays in your browser and is only used to suggest a route away from modeled fire-risk zones.',
-  simulatedNote: 'Safe zones are simulated for this demo, not official shelters.',
+  emergency: 'If you are in immediate danger, call 911 and follow official alerts.',
+  simulatedNote:
+    'Demo: the GPS fix, the person and the safe zones are simulated; the fire is the live model.',
 };
 
 export const STRUCTURE_EDGE_STYLE = {

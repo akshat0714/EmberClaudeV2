@@ -1,11 +1,12 @@
 # Kenneth Fire — 3D Historical Fire-Spread Reconstruction
 
 A judge-friendly, Google-Earth-style 3D demo that tells the Kenneth Fire story (West Hills /
-Calabasas, January 2025) with three clear concepts: subtle charcoal **burned history**, a bright
-pulsing **current active front**, and **one** model-based prediction — *"Likely spread in next
-30 minutes"* — drawn as a single gradient zone with a crisp boundary, explained by faint wind
-streamlines, thin spread-pathway ribbons, and dashed structure-edge lines. Everything is draped
-onto **Google photorealistic 3D terrain and buildings**.
+Calabasas, January 2025) with three clear concepts: **dark-red burned history** (everything the
+fire has covered, deepening with age), a bright pulsing **current active front**, and **one**
+model-based prediction — *"Likely spread in next 30 minutes"* — drawn as a single gradient zone
+with a crisp boundary, explained by faint wind streamlines, thin spread-pathway ribbons, and
+dashed structure-edge lines. Everything is draped onto **Google photorealistic 3D terrain and
+buildings**.
 
 > Observed and reconstructed spread zones with model-based spread potential.
 > **Not an official perimeter. Not emergency guidance.**
@@ -31,9 +32,8 @@ The app shows a clean setup screen until a key is configured:
    API key. The project must have **billing enabled** (photorealistic 3D tiles require it; the
    monthly free tier comfortably covers demo usage).
 2. Enable for that project:
-   - **Maps JavaScript API** (3D map + routing client)
+   - **Maps JavaScript API** (3D map)
    - **Map Tiles API** (photorealistic 3D tiles)
-   - **Directions API** (evacuation route candidates via `DirectionsService`)
 3. Create `.env` in the project root (see `.env.example`):
 
    ```bash
@@ -43,40 +43,51 @@ The app shows a clean setup screen until a key is configured:
 4. Restart `npm run dev` (Vite reads `.env` at startup).
 
 If Google rejects the key at runtime, the app replaces the map with a clear diagnostic card
-instead of a black screen. If only Directions is missing, the fire scene still works and the
-evacuation card explains that routing is unavailable.
+instead of a black screen.
 
-## Evacuation Mode — rescue sim (decision support, not official guidance)
+## Help — rescue sim (decision support, not official guidance)
 
-One toggle starts a simple rescue scenario: **one simulated person at high risk** on a West
-Hills street beside the modeled fire edge, and a **text-only assistant chat**:
+One press of **"Help — I need to evacuate"** runs the whole rescue story:
 
-- **Ask, then route** — the assistant first asks how the person is travelling (car / on foot,
-  any mobility needs). The answer is parsed locally (quick-reply buttons or free text) and
-  picks the Directions travel mode; replies are phrased by **Gemini** when
-  `VITE_GEMINI_API_KEY` is set, with a deterministic built-in fallback so the demo never
-  blocks. The LLM only writes text — routing and safety always come from the risk model.
-- **One shared world clock** — while the person is replying, the world runs in **real time**
-  (1 fire-minute = 1 real minute); otherwise it fast-forwards (**1 fire-minute = 1 real
-  second**). The person moves along the route in world time too (driving ~40 km/h, walking
-  ~5 km/h), so time spent chatting genuinely costs progress. The card shows which rate is
-  active.
-- **Blue route, green safe zone** — real road candidates from Maps JS `DirectionsService`
-  (driving or walking) are risk-scored against the live model: anything crossing the current
-  fire, the front buffer, or the predicted *"Likely spread in next 30 minutes"* envelope is
-  rejected; the best survivor draws as a bright blue path to a green-highlighted safe-zone
-  circle and marker. Routes lead out of both the fire and the predicted zone with margin.
-- **Safe zones that move** — destinations are re-validated against every model refresh; if the
-  predicted spread reaches one (margin checks), the safe zone is relocated, the route is
-  rebuilt for the person's travel mode, and the assistant explains the change in chat. The
-  relocation rule is unit-tested against late-stage envelope geometry.
-- **Honesty by construction** — destinations are labelled *(simulated)*; the card always shows
-  *"Model-based route. Follow local authorities."* and *"Not official emergency guidance."*;
-  when every candidate is rejected the app says *"No modeled low-risk route found. Follow
-  official evacuation instructions immediately."* instead of faking a route. Production use
-  would require official evacuation zones, road closures, shelters and alerts.
-- The GPS plumbing (`watchPosition`, accuracy circle, blue dot, heading wedge) remains for
-  real-location use; the rescue sim simply seeds the demo person automatically.
+1. **Locate** — the world clock restarts at ignition and the card shows *"Locating your GPS
+   position…"*; the simulated fix drops onto **E Las Virgenes Canyon Rd**, the dirt road
+   through Upper Las Virgenes Canyon — about 1 km downwind of the ignition point, directly in
+   the modeled spread path. A **clear blue dot** (halo, white ring, heading wedge, "You" pin)
+   appears and the camera flies to it.
+2. **Ask** — the assistant asks what the person has with them: **a car, a bike, on foot — or
+   nothing — and whether a disability slows them down** (quick replies or free text). The
+   answer is parsed locally; replies are phrased by **Gemini** when `VITE_GEMINI_API_KEY` is
+   set, with a deterministic built-in fallback so the demo never blocks. The LLM only writes
+   text — routing and safety always come from the risk model. The resource sets the speed
+   (car ~36 km/h, bike ~15 km/h, foot ~5 km/h, limited mobility ~3 km/h).
+3. **Guide, qualitatively** — two hand-authored escape routes along real road alignments
+   (EAST: up E Las Virgenes Canyon Rd to the Valley Circle Blvd gate, then EAST on Vanowen St
+   into West Hills; SOUTH-WEST: down the canyon to Las Virgenes Canyon Rd toward Calabasas)
+   are **risk-scored against the live fire model** — anything crossing the fire, hugging the
+   front, fleeing downwind, or re-entering the predicted envelope after the initial escape
+   window is rejected. The best survivor draws as a **bright blue path** to a
+   **green-highlighted safe zone**, and the card + assistant give directions the way a person
+   needs them: a big compass arrow, *"Head NORTH-EAST"*, the road name, and a step list with
+   ETA and a progress bar.
+4. **Escape** — the simulated person responds perfectly: they follow the blue path in world
+   time. While they reply the world runs in **real time** (1 fire-minute = 1 real minute);
+   while they move it fast-forwards (**1 fire-minute = 1 real second**) — chatting genuinely
+   costs progress. Routes and the destination are re-validated on every model refresh; if the
+   spread cuts the route the backup is chosen and explained in chat. They make it out to the
+   safe zone, and the fire timeline keeps playing.
+
+**Honesty by construction** — the GPS fix, person and destinations are labelled *(simulated)*;
+the card always shows *"Model-based guidance. Follow local authorities."* and *"Not official
+emergency guidance."*; when every candidate is rejected the app says *"No modeled low-risk
+route found. Follow official evacuation instructions immediately."* instead of faking a route.
+Production use would require official evacuation zones, road closures, shelters and alerts.
+
+The full rescue loop is covered by a node smoke test that replays the fire and walks the
+person along the chosen path for every resource type:
+
+```bash
+npx tsx scripts/rescueSmoke.ts
+```
 
 ---
 
@@ -84,9 +95,10 @@ Hills street beside the modeled fire edge, and a **text-only assistant chat**:
 
 1. **Fly-in** over photorealistic West Hills / Upper Las Virgenes Canyon — streets, ridgelines,
    and neighborhoods are immediately recognizable (hybrid mode keeps place labels on).
-2. **Burned history** — terrain already reached renders as a subtle dark charcoal overlay
-   (recent intervals slightly lighter than older ones) with faint past-arrival contour lines,
-   so ridges, roads, and buildings stay visible underneath.
+2. **Burned history** — terrain the fire has already covered renders as an unmistakable
+   **dark-red** overlay that deepens as the burn ages (just-burned slightly brighter, old burn
+   darkest) with faint past-arrival contour lines, so ridges, roads, and buildings stay
+   visible underneath.
 3. **Current active front** — the brightest layer: a crisp, gently pulsing yellow-orange line
    that sweeps continuously between the reconstruction stages (3:34 PM ignition → 3:45 PM →
    5:00 PM → 5:30 PM → evening final footprint, official 1,052 acres), labelled on the terrain.
@@ -124,12 +136,18 @@ Time** propagation (Dijkstra over a terrain cost grid) with an **elliptical spre
   rear-focus ellipse form R(θ) = R_head·(1−ε)/(1−ε·cosθ) — measured head/flank/back ≈
   18.7 / 1.8 / 1.0 m/min in open grass. Canyon channeling multiplies speed along drainage
   axes; developed blocks are near-barriers; the WUI fringe is slightly slowed.
+- **Position-dependent shapes:** a deterministic two-octave value-noise **fuel patchiness**
+  field (×0.5–1.5 local speed, fixed seed) plus the strengthened slope and canyon terms make
+  the fire grow **differently-shaped lobes in different places** — uphill-stretched fingers on
+  the ridges and peaks, long thin runs down the drainages, broad wind-driven tongues in the
+  open grass, and flat slow creep along the city edge — instead of one uniform oval.
 - **Frontier-point front:** the displayed active edge is ~224 independent frontier points.
   Per interval, each point's advancement schedule comes from the model's pace toward its
-  target position (progress = p^γ, γ smoothed around the ring), so tongues surge
-  downwind/upslope/along canyons while resisted edges stall — yet every point lands exactly on
-  the historical stage ring at the interval end. 10–20 crimson tendrils grow out along the
-  model's fastest routes (validated minimum-travel-time traces, not decoration).
+  target position (progress = p^γ, γ smoothed around the ring, plus a position-hashed
+  raggedness term that is stable between refreshes), so tongues surge downwind/upslope/along
+  canyons while resisted edges stall — yet every point lands exactly on the historical stage
+  ring at the interval end. 10–20 crimson tendrils grow out along the model's fastest routes
+  (validated minimum-travel-time traces, not decoration).
 - The raw grid is never shown: marching-squares contours + Chaikin smoothing produce the dense
   (~200-vertex) zone geometry, clamped so the visible boundary never dips behind the front;
   the displayed zone morphs smoothly between model refreshes. The model refreshes ~1.4×/second
@@ -166,18 +184,30 @@ This is a **communication tool, clearly labelled as a reconstruction with model 
 src/
   App.tsx                        app state, rAF clock, key screen
   components/FireScene.tsx       Google 3D map + history/front/prediction layers
+  components/HelpMode.tsx        Help button + rescue card (chat, directions, steps)
+  components/UserLocationLayer.tsx blue dot (halo/ring/dot/wedge) + "You" pin
+  components/RescueRouteLayer.tsx blue escape path + green safe zone + framing
   components/TimelineControls.tsx play/pause/replay, stage scrubber, speeds
   components/InfoPanel.tsx       time, stage, drivers, legend, facts
   data/kennethFacts.ts           official incident facts + disclaimer
   data/kennethReconstruction.ts  stage rings, structure edges, camera framing
-  data/spreadModelConfig.ts      model tunables, band styles, display wording
-  lib/arrivalTimeModel.ts        terrain grid + anisotropic Dijkstra propagation
+  data/spreadModelConfig.ts      model tunables, styles, Help config + wording
+  data/helpScenario.ts           simulated GPS spot, road geometry, escape routes
+  lib/arrivalTimeModel.ts        terrain grid + patchiness + anisotropic Dijkstra
+  lib/helpController.ts          Help flow state machine (locate/ask/guide/escape)
+  lib/rescueAssistant.ts         resource parsing + Gemini/LLM-phrased replies
+  lib/routeRiskScoring.ts        route sampling vs front/envelope/wind, scoring
+  lib/fireRiskGeometry.ts        distances, path projection/arc movement, shapes
+  lib/userLocation.ts            LocationFix model for the simulated GPS
   lib/predictionBands.ts         marching-squares contours, dashes, pathways
   lib/spreadDrivers.ts           High/Medium/Low driver summary for the panel
   lib/interpolatePolygon.ts      ring resample/align/lerp + area helpers
+  lib/frontierWarp.ts            per-vertex front schedules + shape raggedness
   lib/loadGoogleMaps.ts          runtime loader for the maps3d library
   lib/timeUtils.ts               PT/UTC formatting, easing, binary search
   types/maps3d.d.ts              minimal ambient types for the maps3d library
+scripts/
+  rescueSmoke.ts                 full rescue-loop smoke test (npx tsx)
 ```
 
 Tuning the look: camera framing lives in `SCENE_CAMERA` (`kennethReconstruction.ts`); wind,

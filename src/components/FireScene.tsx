@@ -5,9 +5,9 @@
  * so fills and lines follow hills, canyons and buildings rather than floating
  * as flat stickers. Three main concepts, bottom to top:
  *
- *  1. Burned / reached terrain — charred translucent fills with an age ramp
- *     (recently burned warmer, older burned darker) and faint past-arrival
- *     contour lines; terrain and roads stay visible.
+ *  1. Burned / reached terrain — DARK RED translucent fills with an age ramp
+ *     (just burned slightly brighter, older burn darker) and faint
+ *     past-arrival contour lines; terrain and roads stay visible.
  *  2. Current active front — a multi-point advancing frontier: ~224 sampled
  *     edge points, each advancing on its own schedule derived from the spread
  *     model (frontierWarp), so tongues surge downwind/upslope/along canyons
@@ -70,8 +70,8 @@ import {
   setMarkerLabel,
 } from '../lib/markerUtils';
 import type { LocationFix } from '../lib/userLocation';
-import type { SafeDestination } from '../data/demoEvacuationData';
-import EvacuationRouteLayer from './EvacuationRouteLayer';
+import type { SafeDestination } from '../data/helpScenario';
+import RescueRouteLayer from './RescueRouteLayer';
 import UserLocationLayer from './UserLocationLayer';
 
 export { safeLabel };
@@ -83,11 +83,10 @@ export interface SceneHandle {
   clampMode: google.maps.maps3d.AltitudeModeValue;
 }
 
-/** Evacuation overlay state rendered into the 3D scene. */
-export interface EvacuationView {
+/** Help-flow overlay state rendered into the 3D scene. */
+export interface RescueView {
   active: boolean;
   fix: LocationFix | null;
-  picking: boolean;
   routePath: LatLng[] | null;
   destination: SafeDestination | null;
 }
@@ -134,7 +133,7 @@ function setAttached(map: Map3D, el: HTMLElement, attached: boolean): void {
   else if (!attached && el.isConnected) el.remove();
 }
 
-/** Burned tint by how many stages ago the area was reached (warm → charred). */
+/** Burned tint by how many stages ago the area was reached (dark red, deeper with age). */
 function burnedFill(age: number): string {
   return BURNED_STYLE.ageRamp[Math.min(Math.max(age, 0), BURNED_STYLE.ageRamp.length - 1)];
 }
@@ -387,10 +386,8 @@ interface FireSceneProps {
   onModelUpdate?: (summary: ModelSummary) => void;
   /** Receives the fire-risk geometry snapshot after each model refresh. */
   onRiskSnapshot?: (snapshot: FireRiskSnapshot) => void;
-  /** Evacuation overlays (user dot, route, destination) when mode is on. */
-  evacuation?: EvacuationView;
-  /** Called when the user picks a manual location on the map. */
-  onMapPick?: (point: LatLng) => void;
+  /** Help-flow overlays (blue user dot, blue route, green safe zone). */
+  rescue?: RescueView;
 }
 
 interface Tendril {
@@ -403,8 +400,7 @@ export default function FireScene({
   time,
   onModelUpdate,
   onRiskSnapshot,
-  evacuation,
-  onMapPick,
+  rescue,
 }: FireSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneRefs | null>(null);
@@ -725,7 +721,7 @@ export default function FireScene({
     const reachedStage = Math.max(0, countAtOrBefore(stageTimes, time) - 1);
     const atEnd = time >= stageTimes[stageTimes.length - 1];
 
-    // burned history: charred age-ramped fills + faint past contours
+    // burned history: dark-red age-ramped fills + faint past contours
     SPREAD_STAGES.forEach((_, k) => {
       const visible = time >= stageTimes[k];
       setFill(scene.zones[k], visible ? burnedFill(reachedStage - k) : TRANSPARENT);
@@ -855,18 +851,13 @@ export default function FireScene({
   return (
     <div className="scene-shell">
       <div ref={containerRef} className="scene-container" />
-      {phase === 'ready' && sceneHandle && evacuation?.active && (
+      {phase === 'ready' && sceneHandle && rescue?.active && (
         <>
-          <UserLocationLayer
+          <UserLocationLayer scene={sceneHandle} fix={rescue.fix} />
+          <RescueRouteLayer
             scene={sceneHandle}
-            fix={evacuation.fix}
-            picking={evacuation.picking}
-            onPick={onMapPick}
-          />
-          <EvacuationRouteLayer
-            scene={sceneHandle}
-            routePath={evacuation.routePath}
-            destination={evacuation.destination}
+            routePath={rescue.routePath}
+            destination={rescue.destination}
           />
         </>
       )}

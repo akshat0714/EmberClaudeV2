@@ -65,6 +65,15 @@ export function computeFrontierGamma(transition: RingTransition): Float64Array {
     lateness[i] = clamp((v - p10) / (p90 - p10), 0, 1);
   }
 
+  // Position-hashed shape noise: each frontier point gets a stable nudge
+  // earlier or later derived from its target position, layering fuel-patch
+  // raggedness over the model ranking — the front grows differently-shaped
+  // fingers at different positions, identical on every refresh (no flicker).
+  for (let i = 0; i < n; i++) {
+    const s = Math.sin(b[i].lat * 78901.7 + b[i].lng * 45713.3) * 43758.5453;
+    lateness[i] = clamp(lateness[i] + (s - Math.floor(s) - 0.5) * WARP.shapeJitter, 0, 1);
+  }
+
   // Neighbor coupling: 1-2-1 ring blur keeps adjacent frontier points moving
   // together, so tongues read as tongues rather than spikes.
   for (let pass = 0; pass < WARP.smoothPasses; pass++) {
