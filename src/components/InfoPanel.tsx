@@ -1,5 +1,7 @@
 import { DISCLAIMER, KENNETH_FIRE, MODE_LABEL } from '../data/kennethFacts';
 import { SPREAD_STAGES } from '../data/kennethReconstruction';
+import { PREDICTION_BANDS, WORDING } from '../data/spreadModelConfig';
+import type { DriverLevel, ModelSummary } from '../lib/spreadDrivers';
 import { formatPacificDate, formatPacificTime, formatUtc } from '../lib/timeUtils';
 
 export interface StructureStatus {
@@ -15,6 +17,22 @@ interface InfoPanelProps {
   /** Approximate share of the final footprint area currently covered, 1..100. */
   percentOfFinal: number;
   structures: StructureStatus[];
+  model: ModelSummary;
+}
+
+function DriverRow({ label, level }: { label: string; level: DriverLevel }) {
+  const filled = level === 'High' ? 3 : level === 'Medium' ? 2 : 1;
+  return (
+    <li className="driver-row">
+      <span className="driver-label">{label}</span>
+      <span className={`driver-meter level-${level.toLowerCase()}`} aria-hidden="true">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className={i < filled ? 'seg on' : 'seg'} />
+        ))}
+      </span>
+      <span className="driver-level">{level}</span>
+    </li>
+  );
 }
 
 export default function InfoPanel({
@@ -22,6 +40,7 @@ export default function InfoPanel({
   stageIndex,
   percentOfFinal,
   structures,
+  model,
 }: InfoPanelProps) {
   const stage = SPREAD_STAGES[stageIndex];
 
@@ -42,10 +61,91 @@ export default function InfoPanel({
           Stage {stageIndex + 1} of {SPREAD_STAGES.length} — {stage.name}
         </p>
         <p className="stage-desc">{stage.description}</p>
-        <div className="progress-track" role="img" aria-label={`About ${percentOfFinal}% of the final footprint area`}>
+        <div
+          className="progress-track"
+          role="img"
+          aria-label={`About ${percentOfFinal}% of the final footprint area`}
+        >
           <div className="progress-fill" style={{ width: `${percentOfFinal}%` }} />
         </div>
         <p className="value-sub">≈{percentOfFinal}% of final footprint area (reconstructed)</p>
+      </section>
+
+      {model.drivers && (
+        <section>
+          <h3>Spread drivers</h3>
+          <ul className="driver-list">
+            <DriverRow label="Wind alignment" level={model.drivers.windAlignment} />
+            <DriverRow label="Slope effect" level={model.drivers.slopeEffect} />
+            <DriverRow label="Fuel / vegetation" level={model.drivers.fuelVegetation} />
+            <DriverRow label="Canyon channeling" level={model.drivers.canyonChanneling} />
+            <DriverRow label="Structure adjacency" level={model.drivers.structureAdjacency} />
+          </ul>
+          <p className="section-caption">{WORDING.model}</p>
+          {!model.predictionActive && <p className="paused-note">{WORDING.modelPaused}</p>}
+        </section>
+      )}
+
+      <hr />
+
+      <section>
+        <h3>Legend</h3>
+        <ul className="legend">
+          <li>
+            <span className="swatch swatch-burned" />
+            <span>Burned / reached terrain (reconstruction)</span>
+          </li>
+          <li>
+            <span className="swatch swatch-history" />
+            <span>Past spread contours</span>
+          </li>
+          <li>
+            <span className="swatch swatch-front" />
+            <span>Current active front</span>
+          </li>
+          {PREDICTION_BANDS.map((band) => (
+            <li key={band.minutes}>
+              <span
+                className="swatch swatch-band"
+                style={{
+                  background: band.fill,
+                  borderColor: band.stroke,
+                  borderStyle: band.dashed ? 'dashed' : 'solid',
+                }}
+              />
+              <span>
+                {band.label} <em className="confidence">({band.confidence} confidence)</em>
+              </span>
+            </li>
+          ))}
+          <li>
+            <span className="swatch swatch-pathway" />
+            <span>Likely spread pathways (terrain + wind)</span>
+          </li>
+          <li>
+            <span className="swatch swatch-structure" />
+            <span>Structure-adjacent edge — no building damage implied</span>
+          </li>
+        </ul>
+        <p className="section-caption">{WORDING.potential}</p>
+        <p className="section-caption">{WORDING.confidenceKey}</p>
+      </section>
+
+      <hr />
+
+      <section>
+        <h3>Developed edges</h3>
+        <ul className="structure-list">
+          {structures.map((s) => (
+            <li key={s.name}>
+              <span className={s.active ? 'struct-dot active' : 'struct-dot'} />
+              <span>
+                {s.name}
+                <em>{s.active ? `at spread boundary since ${s.sinceLabel}` : 'not yet reached'}</em>
+              </span>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <hr />
@@ -74,50 +174,6 @@ export default function InfoPanel({
             <dd>{MODE_LABEL}</dd>
           </div>
         </dl>
-      </section>
-
-      <hr />
-
-      <section>
-        <h3>Developed edges</h3>
-        <ul className="structure-list">
-          {structures.map((s) => (
-            <li key={s.name}>
-              <span className={s.active ? 'struct-dot active' : 'struct-dot'} />
-              <span>
-                {s.name}
-                <em>{s.active ? `at spread boundary since ${s.sinceLabel}` : 'not yet reached'}</em>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <hr />
-
-      <section>
-        <h3>Legend</h3>
-        <ul className="legend">
-          {SPREAD_STAGES.map((s) => (
-            <li key={s.id}>
-              <span
-                className="swatch swatch-zone"
-                style={{ background: s.fillColor, borderColor: s.strokeColor }}
-              />
-              <span>
-                {s.name} · {s.timeLabel}
-              </span>
-            </li>
-          ))}
-          <li>
-            <span className="swatch swatch-front" />
-            <span>Active spread front (current time)</span>
-          </li>
-          <li>
-            <span className="swatch swatch-structure" />
-            <span>Developed edge adjacent to spread zone</span>
-          </li>
-        </ul>
       </section>
 
       <p className="panel-disclaimer">{DISCLAIMER}</p>

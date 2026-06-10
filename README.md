@@ -1,13 +1,13 @@
 # Kenneth Fire — 3D Historical Fire-Spread Reconstruction
 
 A judge-friendly, Google-Earth-style 3D demo that tells the Kenneth Fire story (West Hills /
-Calabasas, January 2025) as a **clean layered geographic reconstruction**: where the fire
-started, which hillsides it crossed interval by interval, where it met neighborhood edges, and
-what the final 1,052-acre footprint looks like — all over **Google photorealistic 3D terrain
-and buildings**.
+Calabasas, January 2025) as a **professional arrival-time overlay**: subtle charcoal burned
+history, a bright pulsing active front, model-based **+15/+30/+60/+90 minute spread-potential
+bands**, thin spread-pathway ribbons, and structure-adjacent edge markers — all over **Google
+photorealistic 3D terrain and buildings**.
 
-> Historical reconstruction using official incident facts and reconstructed spread geometry.
-> **Not emergency guidance.**
+> Observed and reconstructed spread zones with model-based spread-potential intervals.
+> **Not an official perimeter or emergency guidance.**
 
 No backend. The only network use is Google's map library + 3D tiles.
 
@@ -47,43 +47,59 @@ instead of a black screen.
 
 1. **Fly-in** over photorealistic West Hills / Upper Las Virgenes Canyon — streets, ridgelines,
    and neighborhoods are immediately recognizable (hybrid mode keeps place labels on).
-2. **Ignition marker** — "Reported start area" at Victory Blvd west of Gilmore St
-   (34.185198, −118.66991), with a bright yellow ignition zone.
-3. **Time-interval zone bands** draped on the terrain — each interval is its own
-   clearly-outlined, semi-transparent color band (yellow → orange → deep orange → red-orange →
-   burgundy), so progression reads like a layered map, not particles:
-   - 3:34 PM — Ignition
-   - 3:45 PM — Early spread
-   - 5:00 PM — Broader spread
-   - 5:30 PM — Major spread
-   - Evening — Final footprint (official 1,052 acres)
-4. **Moving active front** — a pulsing bright line sweeps continuously outward between stages,
-   filling the current interval's color behind it, so "current time" is always obvious.
-5. **Developed-edge bands** — pale bands light up where the footprint meets the West Hills
-   residential edge (from 3:45 PM) and the Hidden Hills north edge (from 5:30 PM), with a live
-   status list in the right panel.
-6. **Timeline** — play/pause, replay, scrubber with a labeled dot per stage (click to jump),
-   1x / 5x / 20x speeds, and a current-stage chip ("Stage 3 of 5 · Broader spread"). At 1x the
-   whole story plays in ~60 seconds.
-7. **Right panel** — current time, stage + ≈% of final footprint, official facts (final size,
-   start, containment, location), mode "Reconstruction", and a legend.
+2. **Burned history** — terrain already reached renders as a subtle dark charcoal overlay
+   (recent intervals slightly lighter than older ones) with faint past-arrival contour lines,
+   so ridges, roads, and buildings stay visible underneath.
+3. **Current active front** — the brightest layer: a crisp, gently pulsing yellow-orange line
+   that sweeps continuously between the reconstruction stages (3:34 PM ignition → 3:45 PM →
+   5:00 PM → 5:30 PM → evening final footprint, official 1,052 acres), labelled on the terrain.
+4. **Spread-potential bands** — at the current timeline position, a minimum-travel-time model
+   propagates from the front and draws clean **+15 / +30 / +60 / +90 minute** iso-arrival
+   bands: anisotropic contour bands stretched downwind and along terrain, never circles.
+   Near horizons get solid outlines (higher confidence); +60/+90 render dashed and fainter
+   (lower confidence). Labelled *"Spread potential, not official perimeter."*
+5. **Spread pathways** — thin pale ribbons trace the model's fastest routes (canyon corridors,
+   upslope and downwind runs), explaining *why* the bands lean where they lean.
+6. **Structure-adjacent edges** — dashed boundary lines + faint bands where the footprint meets
+   the West Hills edge ("Structure-adjacent edge", from 3:45 PM) and the Hidden Hills north
+   edge ("Neighborhood edge risk", from 5:30 PM). No building damage is implied.
+7. **Driver panel** — Wind alignment / Slope effect / Fuel / Canyon channeling / Structure
+   adjacency as live High–Medium–Low meters, captioned with the model description.
+8. **Timeline** — play/pause, replay, stage-labeled scrubber (click to jump), 1x/5x/20x.
+   At the final stage the potential bands hide ("forward progress stopped") and the history +
+   final perimeter remain.
+
+## The spread-potential model
+
+*Arrival-time surface based on wind, slope, fuel, canyon alignment, and structure adjacency.*
+
+- ~7,700 terrain cells (70 m) cover the preserve and bordering neighborhoods. Elevation is an
+  **approximated analytic surface** of the area's main landforms (northern ridge, Lasky Mesa,
+  Castle Peak, Las Virgenes Creek canyon, the SW drainage) — no DEM download, no extra APIs.
+- Per-step speed = base dry-grass rate × dryness, plus wind-alignment, uphill, and
+  canyon-channeling bonuses, with a strong backing-fire penalty against the wind and a hard
+  barrier penalty inside developed blocks (WUI fringe slightly slowed). Dijkstra
+  (minimum-travel-time) propagation from the current front yields each cell's arrival time.
+- The raw grid is never shown: marching-squares contours + Chaikin smoothing produce the neat
+  bands; the Dijkstra predecessor tree produces the pathway ribbons. The model refreshes about
+  once a second as the timeline moves (~30 ms per refresh) and pauses at the final footprint.
+- Verified by node smoke tests: contour nesting, monotone growth, downwind-vs-upwind
+  anisotropy (~4.5×), barrier containment, and driver sanity.
 
 ## Honesty & accuracy
 
-This is a **communication tool, clearly labelled as a reconstruction**:
+This is a **communication tool, clearly labelled as a reconstruction with model output**:
 
 - **Official facts are verbatim**: start Jan 9, 2025, 3:34 PM PT; contained Jan 12, 2025,
   7:48 AM PT; final size 1,052 acres; location Victory Blvd west of Gilmore St.
-- **Stage polygons are reconstructed**, not surveyed perimeters. They follow the real
-  geography: ignition at the open-space trailhead, wind-driven growth west/southwest across
-  Upper Las Virgenes Canyon toward Lasky Mesa and Las Virgenes Canyon, with the eastern (West
-  Hills) and southern (Hidden Hills) edges nearly fixed across later stages — the
-  structure-defense story.
-- The **final ring's area is tuned to the official 1,052 acres** (a generator script verified
-  stage areas and strict ring nesting). Intermediate stage acreages are never displayed —
-  only stage names, times, and an explicitly "(reconstructed)" percent readout.
-- The front-line morphing between stages is visual interpolation only.
-- The disclaimer is always visible in the info panel.
+- **Stage polygons are reconstructed**, not surveyed perimeters; the final ring's area is tuned
+  to the official 1,052 acres, with strict ring nesting verified by script.
+- **Future bands are explicitly model-based potential** — bands with confidence styling, never
+  one deterministic "future perimeter", hidden once the reconstruction ends.
+- Intermediate acreages are never displayed; only stage names, times, and an explicitly
+  "(reconstructed)" percent readout.
+- On-screen disclaimer: *"Observed and reconstructed spread zones with model-based
+  spread-potential intervals. Not an official perimeter or emergency guidance."*
 
 ## Tech
 
@@ -97,19 +113,23 @@ This is a **communication tool, clearly labelled as a reconstruction**:
 ```
 src/
   App.tsx                        app state, rAF clock, key screen
-  components/FireScene.tsx       Google 3D map + zone/front/structure layers
+  components/FireScene.tsx       Google 3D map + history/front/prediction layers
   components/TimelineControls.tsx play/pause/replay, stage scrubber, speeds
-  components/InfoPanel.tsx       time, stage, facts, developed edges, legend
+  components/InfoPanel.tsx       time, stage, drivers, legend, facts
   data/kennethFacts.ts           official incident facts + disclaimer
-  data/kennethReconstruction.ts  stage rings, structure bands, camera framing
+  data/kennethReconstruction.ts  stage rings, structure edges, camera framing
+  data/spreadModelConfig.ts      model tunables, band styles, display wording
+  lib/arrivalTimeModel.ts        terrain grid + anisotropic Dijkstra propagation
+  lib/predictionBands.ts         marching-squares contours, dashes, pathways
+  lib/spreadDrivers.ts           High/Medium/Low driver summary for the panel
   lib/interpolatePolygon.ts      ring resample/align/lerp + area helpers
   lib/loadGoogleMaps.ts          runtime loader for the maps3d library
   lib/timeUtils.ts               PT/UTC formatting, easing, binary search
   types/maps3d.d.ts              minimal ambient types for the maps3d library
 ```
 
-Tuning the look: camera framing lives in `SCENE_CAMERA` and all stage geometry/colors in
-`src/data/kennethReconstruction.ts`.
+Tuning the look: camera framing lives in `SCENE_CAMERA` (`kennethReconstruction.ts`); wind,
+speeds, band colors/horizons, and all model wording live in `src/data/spreadModelConfig.ts`.
 
 ### Why not CesiumJS?
 

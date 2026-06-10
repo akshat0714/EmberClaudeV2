@@ -25,4 +25,4 @@ export const APP_TAGLINE = 'Continuous reconstruction of spread over terrain and
 export const MODE_LABEL = 'Reconstruction';
 
 export const DISCLAIMER =
-  'Historical reconstruction using official incident facts and reconstructed spread geometry. Not emergency guidance.';
+  'Observed and reconstructed spread zones with model-based spread-potential intervals. Not an official perimeter or emergency guidance.';

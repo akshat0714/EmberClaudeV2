@@ -23,6 +23,10 @@ export interface SpreadStage {
   /** Stage time used by the animation clock. */
   timeIso: string;
   description: string;
+  /**
+   * Accent colors for UI chips/legends. On the map itself, reached stages
+   * render as subtle charcoal burned-history fills (see spreadModelConfig).
+   */
   fillColor: string;
   strokeColor: string;
   /** Open ring (no repeated end vertex), counter-clockwise. */
@@ -178,20 +182,26 @@ export const SPREAD_STAGES: SpreadStage[] = [
 export interface StructureEdge {
   id: string;
   name: string;
+  /** On-terrain label wording for this edge. */
+  label: string;
   description: string;
   /** Stage index at which this developed edge first lies on the spread boundary. */
   activeFromStage: number;
   ring: LatLng[];
+  /** The boundary-facing chain of the band (used for the dashed edge line). */
+  edgeLine: LatLng[];
 }
 
 /**
  * Developed edges adjacent to the spread zone (not parcel-accurate): thin
  * bands just inside the footprint boundary where it meets neighborhoods.
+ * These mark structure-adjacent terrain, not building damage.
  */
 export const STRUCTURE_EDGES: StructureEdge[] = [
   {
     id: 'west-hills',
     name: 'West Hills edge',
+    label: 'Structure-adjacent edge',
     description: 'Residential boundary along Victory Blvd / Valley Circle.',
     activeFromStage: 1,
     ring: [
@@ -208,10 +218,19 @@ export const STRUCTURE_EDGES: StructureEdge[] = [
       { lat: 34.18962, lng: -118.66733 },
       { lat: 34.19084, lng: -118.66890 },
     ],
+    edgeLine: [
+      { lat: 34.19121, lng: -118.66714 },
+      { lat: 34.18988, lng: -118.66557 },
+      { lat: 34.18803, lng: -118.66502 },
+      { lat: 34.18603, lng: -118.66494 },
+      { lat: 34.18403, lng: -118.66541 },
+      { lat: 34.18204, lng: -118.66620 },
+    ],
   },
   {
     id: 'hidden-hills',
     name: 'Hidden Hills north edge',
+    label: 'Neighborhood edge risk',
     description: 'Closest approach to the Hidden Hills community.',
     activeFromStage: 3,
     ring: [
@@ -225,6 +244,13 @@ export const STRUCTURE_EDGES: StructureEdge[] = [
       { lat: 34.17532, lng: -118.68366 },
       { lat: 34.17555, lng: -118.68033 },
       { lat: 34.17634, lng: -118.67715 },
+    ],
+    edgeLine: [
+      { lat: 34.17516, lng: -118.67658 },
+      { lat: 34.17437, lng: -118.68005 },
+      { lat: 34.17414, lng: -118.68368 },
+      { lat: 34.17477, lng: -118.68700 },
+      { lat: 34.17602, lng: -118.68987 },
     ],
   },
 ];

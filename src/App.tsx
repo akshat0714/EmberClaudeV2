@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import FireScene from './components/FireScene';
 import InfoPanel, { type StructureStatus } from './components/InfoPanel';
 import TimelineControls, { type TimelineStage } from './components/TimelineControls';
+import type { ModelSummary } from './lib/spreadDrivers';
 import {
   APP_SUBTITLE,
   APP_TAGLINE,
@@ -96,6 +97,7 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
   const startTime = stageTimes[0];
   const endTime = stageTimes[stageTimes.length - 1];
   const clock = useAnimationClock(startTime, endTime);
+  const [model, setModel] = useState<ModelSummary>({ drivers: null, predictionActive: true });
 
   const timelineStages = useMemo<TimelineStage[]>(
     () =>
@@ -136,7 +138,7 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
 
   return (
     <div className="app-root">
-      <FireScene apiKey={apiKey} time={clock.time} />
+      <FireScene apiKey={apiKey} time={clock.time} onModelUpdate={setModel} />
       <div className="edge-fade" aria-hidden="true" />
 
       <header className="title-block">
@@ -150,6 +152,7 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
         stageIndex={stageIndex}
         percentOfFinal={percentOfFinal}
         structures={structures}
+        model={model}
       />
 
       <TimelineControls
