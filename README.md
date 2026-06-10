@@ -46,31 +46,37 @@ If Google rejects the key at runtime, the app replaces the map with a clear diag
 instead of a black screen. If only Directions is missing, the fire scene still works and the
 evacuation card explains that routing is unavailable.
 
-## Evacuation Mode (decision support, not official guidance)
+## Evacuation Mode — rescue sim (decision support, not official guidance)
 
-A single toggle adds a Google-Maps-style evacuation layer on top of the simulation:
+One toggle starts a simple rescue scenario: **one simulated person at high risk** on a West
+Hills street beside the modeled fire edge, and a **text-only assistant chat**:
 
-- **Your position** — browser GPS via `navigator.geolocation.watchPosition()` (high-accuracy,
-  continuous), drawn as a blue dot with a white ring, a translucent accuracy circle, and a
-  heading wedge when available. Location never leaves the browser. If permission is denied or
-  GPS is unavailable: **Use demo location** or **Drop my location** (click the map).
-- **Suggested evacuation route** — real road candidates from the Maps JS `DirectionsService`
-  (with alternatives) to simulated safe destinations, each risk-scored against the live model:
-  any candidate that crosses the current fire, the active-front buffer, or the predicted
-  *"Likely spread in next 30 minutes"* envelope is rejected outright; survivors are ranked by
-  duration, distance, envelope proximity, tendril crossings, downwind-toward-fire travel and
-  canyon exposure. The best route draws as a bright blue path with a green safe-zone marker.
+- **Ask, then route** — the assistant first asks how the person is travelling (car / on foot,
+  any mobility needs). The answer is parsed locally (quick-reply buttons or free text) and
+  picks the Directions travel mode; replies are phrased by **Gemini** when
+  `VITE_GEMINI_API_KEY` is set, with a deterministic built-in fallback so the demo never
+  blocks. The LLM only writes text — routing and safety always come from the risk model.
+- **One shared world clock** — while the person is replying, the world runs in **real time**
+  (1 fire-minute = 1 real minute); otherwise it fast-forwards (**1 fire-minute = 1 real
+  second**). The person moves along the route in world time too (driving ~40 km/h, walking
+  ~5 km/h), so time spent chatting genuinely costs progress. The card shows which rate is
+  active.
+- **Blue route, green safe zone** — real road candidates from Maps JS `DirectionsService`
+  (driving or walking) are risk-scored against the live model: anything crossing the current
+  fire, the front buffer, or the predicted *"Likely spread in next 30 minutes"* envelope is
+  rejected; the best survivor draws as a bright blue path to a green-highlighted safe-zone
+  circle and marker. Routes lead out of both the fire and the predicted zone with margin.
+- **Safe zones that move** — destinations are re-validated against every model refresh; if the
+  predicted spread reaches one (margin checks), the safe zone is relocated, the route is
+  rebuilt for the person's travel mode, and the assistant explains the change in chat. The
+  relocation rule is unit-tested against late-stage envelope geometry.
 - **Honesty by construction** — destinations are labelled *(simulated)*; the card always shows
   *"Model-based route. Follow local authorities."* and *"Not official emergency guidance."*;
-  and when every candidate is rejected the app says
-  *"No modeled low-risk route found. Follow official evacuation instructions immediately."*
-  instead of faking a route. Production use would require official evacuation zones, road
-  closures, shelters and alerts.
-- **Continuous updates** — the current route is re-scored on every model refresh and GPS fix;
-  network re-routing fires when the user strays off-route, when the route becomes unsafe, or
-  periodically (~15 s) after meaningful movement.
-- **Demo controls** — judges can drive the dot along the route (with live ETA/distance and
-  automatic rerouting) or nudge it toward the fire to watch the risk status and route react.
+  when every candidate is rejected the app says *"No modeled low-risk route found. Follow
+  official evacuation instructions immediately."* instead of faking a route. Production use
+  would require official evacuation zones, road closures, shelters and alerts.
+- The GPS plumbing (`watchPosition`, accuracy circle, blue dot, heading wedge) remains for
+  real-location use; the rescue sim simply seeds the demo person automatically.
 
 ---
 

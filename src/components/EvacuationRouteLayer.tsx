@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef } from 'react';
 import type { SafeDestination } from '../data/demoEvacuationData';
-import { bearingDeg, pathLengthM } from '../lib/fireRiskGeometry';
+import { bearingDeg, circleRing, pathLengthM } from '../lib/fireRiskGeometry';
 import type { LatLng } from '../lib/interpolatePolygon';
 import { customizePins, makeMarker, setMarkerLabel } from '../lib/markerUtils';
 import type { SceneHandle } from './FireScene';
@@ -14,6 +14,9 @@ import type { SceneHandle } from './FireScene';
 const TRANSPARENT = 'rgba(0, 0, 0, 0)';
 const ROUTE_CASING = 'rgba(255, 255, 255, 0.65)';
 const ROUTE_BLUE = 'rgba(26, 115, 232, 0.95)';
+const SAFE_ZONE_FILL = 'rgba(24, 128, 56, 0.22)';
+const SAFE_ZONE_STROKE = 'rgba(52, 168, 83, 0.92)';
+const SAFE_ZONE_RADIUS_M = 170;
 
 interface EvacuationRouteLayerProps {
   scene: SceneHandle;
@@ -24,6 +27,7 @@ interface EvacuationRouteLayerProps {
 interface Elements {
   casing: google.maps.maps3d.Polyline3DElement;
   line: google.maps.maps3d.Polyline3DElement;
+  safeZone: google.maps.maps3d.Polygon3DElement;
   marker: google.maps.maps3d.Marker3DElement;
 }
 
@@ -48,15 +52,26 @@ export default function EvacuationRouteLayer({
     };
     const marker = makeMarker(scene.lib, scene.clampMode, undefined, { lat: 0, lng: 0 });
     customizePins([{ marker, background: '#188038', scale: 0.8 }]);
+    const safeZone = new scene.lib.Polygon3DElement({
+      altitudeMode: scene.clampMode,
+      fillColor: TRANSPARENT,
+      strokeColor: TRANSPARENT,
+      strokeWidth: 2,
+      extruded: false,
+      drawsOccludedSegments: false,
+    });
+    scene.map.append(safeZone);
     const elements: Elements = {
       casing: makeLine(8),
       line: makeLine(5),
+      safeZone,
       marker,
     };
     elementsRef.current = elements;
     return () => {
       elements.casing.remove();
       elements.line.remove();
+      elements.safeZone.remove();
       elements.marker.remove();
       elementsRef.current = null;
     };
@@ -68,6 +83,8 @@ export default function EvacuationRouteLayer({
     if (!routePath || routePath.length < 2 || !destination) {
       elements.casing.strokeColor = TRANSPARENT;
       elements.line.strokeColor = TRANSPARENT;
+      elements.safeZone.fillColor = TRANSPARENT;
+      elements.safeZone.strokeColor = TRANSPARENT;
       elements.marker.remove();
       return;
     }
@@ -75,6 +92,10 @@ export default function EvacuationRouteLayer({
     elements.casing.strokeColor = ROUTE_CASING;
     elements.line.coordinates = routePath;
     elements.line.strokeColor = ROUTE_BLUE;
+    // green safe-zone highlight draped around the destination
+    elements.safeZone.outerCoordinates = circleRing(destination.position, SAFE_ZONE_RADIUS_M, 40);
+    elements.safeZone.fillColor = SAFE_ZONE_FILL;
+    elements.safeZone.strokeColor = SAFE_ZONE_STROKE;
     elements.marker.position = { ...destination.position, altitude: 0 };
     setMarkerLabel(elements.marker, destination.name);
     if (!elements.marker.isConnected) scene.map.append(elements.marker);

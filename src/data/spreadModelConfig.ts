@@ -213,6 +213,28 @@ export const EVACUATION = {
     /** Penalty per km spent escaping out of the risk area at the start. */
     escapePerKm: 10,
   },
+  /** A destination must keep these margins or it is relocated. */
+  destination: {
+    frontMarginM: 600,
+    envelopeMarginM: 300,
+  },
+  /** World-time movement speeds for the simulated person (m per fire-second). */
+  movement: {
+    drivingMps: 11, // ~40 km/h evacuation traffic
+    walkingMps: 1.4,
+    limitedMps: 1.0, // reduced mobility
+  },
+  /**
+   * Rescue-sim clock: the fire and the person share one world clock.
+   * While the person is chatting (responding in real time) the world runs in
+   * real time (1 fire-minute = 1 real minute); otherwise it fast-forwards
+   * (1 fire-minute = 1 real second).
+   */
+  clock: {
+    fastRate: 60,
+    realRate: 1,
+    chatGraceMs: 8000,
+  },
 };
 
 /** Exact evacuation wording (decision-support honesty). */
