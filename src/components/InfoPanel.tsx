@@ -1,4 +1,4 @@
-import { DISCLAIMER, KENNETH_FIRE, MODE_LABEL } from '../data/kennethFacts';
+import { DISCLAIMER, MODE_LABEL, SCENARIO } from '../data/kennethFacts';
 import { SPREAD_STAGES } from '../data/kennethReconstruction';
 import { WORDING } from '../data/spreadModelConfig';
 import type { DriverLevel, ModelSummary } from '../lib/spreadDrivers';
@@ -126,43 +126,48 @@ export default function InfoPanel({
         <p className="section-caption">{WORDING.potential}</p>
       </section>
 
+      {structures.length > 0 && (
+        <>
+          <hr />
+          <section>
+            <h3>Developed edges</h3>
+            <ul className="structure-list">
+              {structures.map((s) => (
+                <li key={s.name}>
+                  <span className={s.active ? 'struct-dot active' : 'struct-dot'} />
+                  <span>
+                    {s.name}
+                    <em>
+                      {s.active ? `at spread boundary since ${s.sinceLabel}` : 'not yet reached'}
+                    </em>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </>
+      )}
+
       <hr />
 
       <section>
-        <h3>Developed edges</h3>
-        <ul className="structure-list">
-          {structures.map((s) => (
-            <li key={s.name}>
-              <span className={s.active ? 'struct-dot active' : 'struct-dot'} />
-              <span>
-                {s.name}
-                <em>{s.active ? `at spread boundary since ${s.sinceLabel}` : 'not yet reached'}</em>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <hr />
-
-      <section>
-        <h3>Official incident facts</h3>
+        <h3>Scenario</h3>
         <dl className="facts">
           <div>
-            <dt>Final size</dt>
-            <dd>{KENNETH_FIRE.finalAcres.toLocaleString('en-US')} acres</dd>
+            <dt>Ignition</dt>
+            <dd>{SCENARIO.location}</dd>
           </div>
           <div>
             <dt>Started</dt>
-            <dd>{KENNETH_FIRE.startLabel}</dd>
+            <dd>{SCENARIO.startLabel}</dd>
           </div>
           <div>
-            <dt>Contained</dt>
-            <dd>{KENNETH_FIRE.containedLabel}</dd>
+            <dt>Conditions</dt>
+            <dd>{SCENARIO.conditionsLabel}</dd>
           </div>
           <div>
-            <dt>Location</dt>
-            <dd>{KENNETH_FIRE.location}</dd>
+            <dt>Final size</dt>
+            <dd>≈{SCENARIO.finalAcres.toLocaleString('en-US')} acres (simulated)</dd>
           </div>
           <div>
             <dt>Mode</dt>

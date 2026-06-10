@@ -43,13 +43,15 @@ export const SPEEDS = {
   /** Channeling multiplier strength along canyon/drainage axes — long thin
    *  runs down the canyons, a different shape than the broad wind head. */
   canyonFactor: 0.8,
-  /** Multiplier inside developed blocks: roads, irrigation, structure defense
-   *  still dominate, but slow creep along the city edge stays visible. */
-  developedFactor: 0.18,
-  /** Multiplier in the wildland fringe right against structures (WUI edge):
-   *  near-normal speed, so the footprint flattens and widens along the city
-   *  rather than stopping in a clean line. */
-  wuiFactor: 0.92,
+  /** Burnable-fuel fraction of developed blocks: in an ember-driven urban
+   *  conflagration the houses themselves are the fuel bed. */
+  urbanFuel: 0.5,
+  /** Speed multiplier inside developed blocks: streets, pools and defended
+   *  lots slow house-to-house spread, but under Santa Ana winds it keeps
+   *  moving (≈5–8 m/min head rate — Palisades/Eaton-style). */
+  developedFactor: 0.6,
+  /** Multiplier in the wildland fringe right against structures (WUI edge). */
+  wuiFactor: 0.95,
   minSpeed: 0.25,
   maxSpeed: 30,
   /**
@@ -64,12 +66,12 @@ export const SPEEDS = {
   patchFineScaleM: 150,
 };
 
-/** Modeled area around the fire (covers the preserve and bordering streets). */
+/** Modeled area: the West Hills grid around the fire plus the preserve edge. */
 export const GRID = {
   latMin: 34.16,
   latMax: 34.212,
   lngMin: -118.722,
-  lngMax: -118.652,
+  lngMax: -118.642,
   cellMeters: 70,
 };
 
@@ -117,9 +119,9 @@ export const PREDICTION_ZONE = {
 export const WIND_STREAMS = {
   cols: 4,
   rows: 3,
-  spacingM: 880,
-  lengthM: 620,
-  arrowM: 100,
+  spacingM: 480,
+  lengthM: 340,
+  arrowM: 70,
   arrowDeg: 26,
   color: 'rgba(255, 255, 255, 0.30)',
   width: 1.2,
@@ -182,16 +184,17 @@ export const PATHWAY_STYLE = {
   /** Progressive grow-out animation per model refresh. */
   growMs: 600,
   staggerMs: 40,
-  /** Endpoint selection: arrival window (fraction of horizon) and spacing. */
+  /** Endpoint selection: arrival window (fraction of horizon) and spacing —
+   *  tuned to the urban scale (house-to-house runs of 100–300 m). */
   windowFraction: 0.4,
-  separationMeters: 220,
-  minRunMeters: 300,
+  separationMeters: 120,
+  minRunMeters: 140,
   /**
-   * Tendril ORIGINS must also be separated, so the 10–20 pathways genuinely
-   * start from distinct active sub-fronts around the fire edge rather than
+   * Tendril ORIGINS must also be separated, so the pathways genuinely start
+   * from distinct active sub-fronts around the fire edge rather than
    * fanning out of one hot spot.
    */
-  originSeparationMeters: 240,
+  originSeparationMeters: 130,
 };
 
 /** Help rescue flow: buffers, scoring weights, movement speeds and the
@@ -230,11 +233,11 @@ export const HELP_CONFIG = {
     escapePerKm: 10,
     /**
      * Time-exposure multiplier on route duration when CHOOSING a route:
-     * slower travellers should take the shortest way out of the risk area,
-     * not the nicest road — a long trek past the fire's flank is wrong for
-     * someone on foot even if a car would clear it in minutes.
+     * someone on foot should take the shortest way out of the risk area
+     * (cut-throughs, nearby refuge), while a car can run farther to a
+     * safer place in less time.
      */
-    exposureByMode: { car: 1, bike: 1.3, foot: 2.5 },
+    exposureByMode: { car: 1, foot: 2.5 },
   },
   /** A destination must keep these margins from the modeled risk. */
   destination: {
@@ -243,21 +246,22 @@ export const HELP_CONFIG = {
   },
   /** World-time movement speeds for the simulated person (m per fire-second). */
   movement: {
-    carMps: 10, // ~36 km/h on the dirt road / evacuation traffic
-    bikeMps: 4.2, // ~15 km/h
+    carMps: 10, // ~36 km/h evacuation traffic on residential streets
     footMps: 1.4, // ~5 km/h brisk walk
     limitedMps: 1.1, // disability / reduced mobility (~4 km/h)
   },
   /**
-   * Shared world clock: the fire and the person run on one clock. Whenever
-   * the person is talking with the assistant (speaking, typing, or hearing
-   * a reply) the fire HOLDS STILL so the exchange can be followed; once
-   * they are moving it fast-forwards (1 fire-minute = 1 real second), and
-   * after arrival the app's normal demo speed resumes.
+   * Shared world clock: the fire and the person run on one clock.
+   *  - idleRate: before Help is pressed the fire creeps VERY slowly (one
+   *    house smoldering) — pressing Help never resets it.
+   *  - holdRate: whenever the person is talking with the assistant
+   *    (speaking, typing, or hearing a reply) the fire HOLDS STILL.
+   *  - fastRate: while the person moves, 1 fire-minute = 1 real second.
    */
   clock: {
-    fastRate: 60,
+    idleRate: 0.1,
     holdRate: 0,
+    fastRate: 60,
     holdAfterChatMs: 6000,
   },
 };

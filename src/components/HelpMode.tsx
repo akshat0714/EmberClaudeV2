@@ -1,13 +1,14 @@
 /**
  * The Help flow UI: one clear SOS-style button, then a single tidy card —
- * locating the GPS position, the resource question, then the directions:
- * a big compass arrow, the road to follow, the step list, ETA and progress.
+ * locating the GPS position, one spoken question ("a car, or on foot?"),
+ * then the directions: a big compass arrow, the street to follow, the step
+ * list, ETA and progress.
  *
- * The assistant is voice-first: every reply is spoken aloud in a calm
- * voice, and the mic button lets the person answer by talking (free text
- * and quick replies remain as fallbacks). Whenever the person is speaking,
- * typing, or hearing a reply, the fire holds still so the exchange can be
- * followed; it resumes once they are moving.
+ * The assistant is voice-first: every reply is spoken aloud, slowly and
+ * calmly, and the mic button lets the person answer by talking (typing
+ * remains as a fallback). Whenever the person is speaking, typing, or
+ * hearing a reply, the fire holds still so the exchange can be followed;
+ * it resumes once they are moving.
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { HELP_LOCATION_DETAIL, HELP_LOCATION_LABEL } from '../data/helpScenario';
@@ -34,7 +35,7 @@ function formatDistance(remainingM: number | null): string {
 }
 
 function modeLabel(state: HelpState): string {
-  const base = state.mode === 'car' ? 'by car' : state.mode === 'bike' ? 'by bike' : 'on foot';
+  const base = state.mode === 'car' ? 'by car' : 'on foot';
   return state.accessibilityNote ? `${base} · extra time planned` : base;
 }
 
@@ -261,8 +262,8 @@ function HelpCard({ state, actions }: { state: HelpState; actions: HelpActions }
       {state.clockRate !== null && (
         <p className="help-clock-note">
           {state.clockRate === 0
-            ? '⏸ Fire holds while you talk'
-            : '⏩ Simulating the escape — 1 fire-minute per second'}
+            ? '⏸ Fire paused while you talk'
+            : '⏩ Fast-forward — 1 fire-minute per second'}
         </p>
       )}
 
@@ -276,14 +277,6 @@ function HelpCard({ state, actions }: { state: HelpState; actions: HelpActions }
           {listening && interim && <div className="help-msg user interim">{interim}</div>}
           {state.chatBusy && <div className="help-msg assistant typing">…</div>}
         </div>
-        {state.status === 'need-resource' && state.mode === null && !state.chatBusy && (
-          <div className="help-quick">
-            <button onClick={() => actions.chooseResource('car')}>🚗 Car</button>
-            <button onClick={() => actions.chooseResource('bike')}>🚲 Bike</button>
-            <button onClick={() => actions.chooseResource('foot')}>🚶 On foot</button>
-            <button onClick={() => actions.chooseResource('limited')}>♿ Disabled</button>
-          </div>
-        )}
         <form className="help-input" onSubmit={submit}>
           {micSupported && (
             <button

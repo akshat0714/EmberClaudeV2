@@ -1,17 +1,19 @@
-# Kenneth Fire — 3D Historical Fire-Spread Reconstruction
+# Ember — Urban Fire Spread & Guided Evacuation (3D)
 
-A judge-friendly, Google-Earth-style 3D demo that tells the Kenneth Fire story (West Hills /
-Calabasas, January 2025) with three clear concepts: **dark-red burned history** (everything the
-fire has covered, deepening with age), a bright pulsing **current active front**, and **one**
-model-based prediction — *"Likely spread in next 30 minutes"* — drawn as a single gradient zone
-with a crisp boundary, explained by faint wind streamlines, thin spread-pathway ribbons, and
-dashed structure-edge lines. Everything is draped onto **Google photorealistic 3D terrain and
-buildings**.
+A judge-friendly, Google-Earth-style 3D demo of a **simulated urban fire** in the West Hills
+residential grid (under the real Santa Ana conditions of January 9, 2025): one house ignites,
+embers carry to the neighbors, the block burns, and it grows into a wind-driven neighborhood
+region — with three clear visual concepts: **dark-red burned history** (everything the fire has
+covered, deepening with age), a bright pulsing **current active front**, and **one** model-based
+prediction — *"Likely spread in next 30 minutes"*. Pressing **Help** runs a voice-guided
+evacuation on the real street grid. Everything is draped onto **Google photorealistic 3D
+terrain and buildings**.
 
-> Observed and reconstructed spread zones with model-based spread potential.
-> **Not an official perimeter. Not emergency guidance.**
+> Simulated scenario with model-based spread potential.
+> **Not a real incident. Not emergency guidance.**
 
-No backend. The only network use is Google's map library + 3D tiles.
+No backend. The only network use is Google's map library + 3D tiles (and Gemini, if a key is
+set).
 
 ---
 
@@ -45,49 +47,46 @@ The app shows a clean setup screen until a key is configured:
 If Google rejects the key at runtime, the app replaces the map with a clear diagnostic card
 instead of a black screen.
 
-## Help — rescue sim (decision support, not official guidance)
+## Help — voice-guided rescue (decision support, not official guidance)
 
-One press of **"Help — I need to evacuate"** runs the whole rescue story:
+Before Help is pressed the fire **creeps very slowly** — one house smoldering. Pressing
+**"Help — I need to evacuate"** never resets it; the rescue joins the world as it is:
 
-1. **Locate** — the world clock restarts at ignition and the card shows *"Locating your GPS
-   position…"*; the simulated fix drops onto **E Las Virgenes Canyon Rd**, the dirt road
-   through Upper Las Virgenes Canyon — about 1 km downwind of the ignition point, directly in
-   the modeled spread path. A **clear blue dot** (halo, white ring, heading wedge, "You" pin)
-   appears and the camera flies to it.
-2. **Ask, by voice** — the assistant SPEAKS in a calm, natural voice and asks what the person
-   has with them: **a car, a bike, on foot — and whether a disability slows them down**. The
-   person can answer by **talking (tap the mic)**, by quick replies, or by typing. Replies are
-   phrased by **Gemini** when `VITE_GEMINI_API_KEY` is set, with a deterministic built-in
-   fallback, and every reply is spoken aloud (Web Speech, all in-browser; a mute toggle sits
-   on the card). The LLM only writes text — routing and safety always come from the risk
-   model.
-3. **The way out depends on what you have** —
-   - **Car / bike** → drive or ride out by road: NORTH-EAST up E Las Virgenes Canyon Rd to the
-     Valley Circle Blvd gate, then EAST on Vanowen St into West Hills (≈7 min by car, ≈15 by
-     bike).
-   - **On foot / disabled** → the short open-space trail straight SOUTH, perpendicular to the
-     wind-driven spread axis, to a pickup point at the Hidden Hills edge where responders meet
-     them (≈22 min on foot, ≈28 with limited mobility) — never a long trek past the fire's
-     flank.
-   - A SOUTH-WEST canyon route to Calabasas stays as the backup for every mode.
-   Candidates allowed for the person's mode are **risk-scored against the live fire model**
-   (fire crossings, front buffer, downwind flight, predicted-envelope re-entry, plus a
-   time-exposure weight so slower travellers get the shortest way out). The winner draws as a
-   **bright blue path** to a **green safe zone**, with a big compass arrow, the road name, a
-   step list, ETA and progress.
+1. **Locate** — the card shows *"Locating your GPS position…"* and the simulated fix drops
+   onto a **residential street in West Hills, two blocks downwind of the burning homes**. A
+   **clear blue dot** (halo, white ring, heading wedge, "You" pin) appears and the camera
+   flies to it.
+2. **One spoken question** — the assistant speaks slowly and simply: *"I found you. The fire
+   is close. Do you have a car, or are you on foot?"* The person answers by **talking (tap
+   the mic)** or typing — no buttons, no menus. A disability mention plans a calmer pace.
+   Replies are phrased by **Gemini** when `VITE_GEMINI_API_KEY` is set (deterministic
+   fallback otherwise) and every reply is spoken aloud (Web Speech, in-browser, mute toggle).
+   The LLM only writes text — routing and safety always come from the risk model.
+3. **The way out depends on the answer** —
+   - **"I have a car"** → get far away fast on the boulevards: WEST to Valley Circle Blvd,
+     SOUTH to Victory Blvd, then EAST ~4.5 km to an evacuation center at Shoup Ave (≈9 min).
+   - **"I'm on foot"** → use the streets to your advantage: the pedestrian walkway between
+     the houses (a shortcut cars can't take) drops straight SOUTH to Victory Blvd, then EAST
+     a few blocks to a pocket-park safe zone (≈21 min; ≈26 with limited mobility). A NORTH
+     route to a Vanowen St staging point is the on-foot backup.
+   Candidates allowed for the answer are **risk-scored against the live fire model** (fire
+   crossings, front buffer, downwind flight, predicted-envelope re-entry, plus a
+   time-exposure weight so people on foot get the shortest way out). The winner draws as a
+   **bright blue path** to a **green safe zone**, with a big compass arrow, the street name,
+   a step list, ETA and progress.
 4. **Escape, with the fire held while you talk** — whenever the person is speaking, typing,
    or hearing a reply, **the fire stands still** so the exchange can be followed; once they
    move, the world fast-forwards (1 fire-minute = 1 real second). The simulated person
    responds perfectly and follows the blue path to the safe zone; routes and the destination
    are re-validated on every model refresh, and if the spread cuts the route the backup is
-   chosen and explained. After arrival the fire timeline plays on.
+   chosen and explained. After arrival the fire keeps growing so you see what they escaped.
 
 When every candidate is rejected the app says *"No low-risk route found. Follow official
 evacuation instructions immediately."* instead of faking a route. Production use would
 require official evacuation zones, road closures, shelters and alerts.
 
 The full rescue loop is covered by a node smoke test that replays the fire and walks the
-person along the chosen path for every resource type:
+person along the chosen path for car, foot, and limited mobility:
 
 ```bash
 npx tsx scripts/rescueSmoke.ts
@@ -97,15 +96,16 @@ npx tsx scripts/rescueSmoke.ts
 
 ## What a judge sees
 
-1. **Fly-in** over photorealistic West Hills / Upper Las Virgenes Canyon — streets, ridgelines,
-   and neighborhoods are immediately recognizable (hybrid mode keeps place labels on).
-2. **Burned history** — terrain the fire has already covered renders as an unmistakable
+1. **Fly-in** over the photorealistic West Hills street grid — houses, yards, and boulevards
+   are immediately recognizable (hybrid mode keeps place labels on).
+2. **Burned history** — everything the fire has already covered renders as an unmistakable
    **dark-red** overlay that deepens as the burn ages (just-burned slightly brighter, old burn
-   darkest) with faint past-arrival contour lines, so ridges, roads, and buildings stay
-   visible underneath.
+   darkest) with faint past-arrival contour lines, so streets and buildings stay visible
+   underneath.
 3. **Current active front** — the brightest layer: a crisp, gently pulsing yellow-orange line
-   that sweeps continuously between the reconstruction stages (3:34 PM ignition → 3:45 PM →
-   5:00 PM → 5:30 PM → evening final footprint, official 1,052 acres), labelled on the terrain.
+   that sweeps continuously between the scenario stages (3:34 PM one house → 3:52 PM
+   neighboring homes → 4:25 PM block → 5:15 PM across the streets → 6:30 PM neighborhood
+   region, ≈121 simulated acres), labelled on the terrain.
 4. **One prediction zone** — at the current timeline position, a FARSITE/Huygens-style
    minimum-travel-time model propagates from the front and draws a single
    **"Likely spread in next 30 minutes"** extent: an anisotropic, terrain-aware gradient zone
@@ -114,11 +114,9 @@ npx tsx scripts/rescueSmoke.ts
    extremely fast (head rate ≥ ~20 m/min), the model narrows to a **20-minute critical
    interval** instead — still only one predicted extent at a time. On-terrain label:
    *"Likely spread in next 30 minutes"*, sublabel *"Spread potential, not official perimeter"*.
-5. **Cause cues, kept thin** — faint wind-direction streamlines; 2–5 pale spread-pathway
-   ribbons along the model's lowest-cost routes, with at most two cause labels
-   ("Wind-driven spread", "Uphill slope influence", "Canyon channeling"); dashed
-   structure-edge lines ("Structure-edge resistance", "Neighborhood edge risk") where the
-   footprint meets neighborhoods — no building damage implied.
+5. **Cause cues, kept thin** — faint wind-direction streamlines and a few crimson advancing
+   tendrils along the model's fastest house-to-house runs, with at most two cause labels
+   ("Wind-driven spread", "Uphill run", "Canyon-aligned spread").
 6. **Driver panel** — Wind / Slope / Fuel / Canyon channeling / Structure-edge resistance as
    live High–Medium–Low meters, captioned: *"Prediction uses wind, slope, fuel, canyon
    alignment, and structure-edge resistance."*
@@ -131,15 +129,16 @@ npx tsx scripts/rescueSmoke.ts
 A **FARSITE/Huygens-family fire-growth model** implemented as Finney-style **Minimum Travel
 Time** propagation (Dijkstra over a terrain cost grid) with an **elliptical spread kernel**:
 
-- ~7,700 terrain cells (70 m) cover the preserve and bordering neighborhoods. Elevation is an
-  **approximated analytic surface** of the area's main landforms (northern ridge, Lasky Mesa,
-  Castle Peak, Las Virgenes Creek canyon, the SW drainage) — no DEM download, no extra APIs.
+- ~9,000 terrain cells (70 m) cover the West Hills grid and the bordering open space.
+  Elevation is an **approximated analytic surface** of the area's main landforms — no DEM
+  download, no extra APIs.
 - Slope acts like added wind (Rothermel-style): an effective wind-slope vector sets each
   cell's local head-spread direction; its magnitude drives the head rate and the ellipse
   length-to-breadth (simplified after Anderson 1983). Rate at angle θ off the head follows the
-  rear-focus ellipse form R(θ) = R_head·(1−ε)/(1−ε·cosθ) — measured head/flank/back ≈
-  18.7 / 1.8 / 1.0 m/min in open grass. Canyon channeling multiplies speed along drainage
-  axes; developed blocks are near-barriers; the WUI fringe is slightly slowed.
+  rear-focus ellipse form R(θ) = R_head·(1−ε)/(1−ε·cosθ). In developed blocks the houses
+  themselves are the fuel bed: ember-driven house-to-house spread runs ≈5–8 m/min under
+  Santa Ana wind (Palisades/Eaton-style), slowed but not stopped by streets and defended
+  lots; canyon channeling multiplies speed along drainage axes in the open space.
 - **Position-dependent shapes:** a deterministic two-octave value-noise **fuel patchiness**
   field (×0.5–1.5 local speed, fixed seed) plus the strengthened slope and canyon terms make
   the fire grow **differently-shaped lobes in different places** — uphill-stretched fingers on
@@ -149,7 +148,7 @@ Time** propagation (Dijkstra over a terrain cost grid) with an **elliptical spre
   Per interval, each point's advancement schedule comes from the model's pace toward its
   target position (progress = p^γ, γ smoothed around the ring, plus a position-hashed
   raggedness term that is stable between refreshes), so tongues surge downwind/upslope/along
-  canyons while resisted edges stall — yet every point lands exactly on the historical stage
+  canyons while resisted edges stall — yet every point lands exactly on the scenario stage
   ring at the interval end. 10–20 crimson tendrils grow out along the model's fastest routes
   (validated minimum-travel-time traces, not decoration).
 - The raw grid is never shown: marching-squares contours + Chaikin smoothing produce the dense
@@ -161,19 +160,17 @@ Time** propagation (Dijkstra over a terrain cost grid) with an **elliptical spre
 
 ## Honesty & accuracy
 
-This is a **communication tool, clearly labelled as a reconstruction with model output**:
+This is a **communication tool, clearly labelled as a simulation with model output**:
 
-- **Official facts are verbatim**: start Jan 9, 2025, 3:34 PM PT; contained Jan 12, 2025,
-  7:48 AM PT; final size 1,052 acres; location Victory Blvd west of Gilmore St.
-- **Stage polygons are reconstructed**, not surveyed perimeters; the final ring's area is tuned
-  to the official 1,052 acres, with strict ring nesting verified by script.
+- **The scenario is simulated** — a fictional ignition in a real neighborhood, under the real
+  Santa Ana conditions of Jan 9, 2025. The info panel labels it "Simulated scenario" and every
+  destination name carries "(simulated)".
+- **Stage polygons are generated**, strictly nested (verified by the smoke test), with
+  believable ember-driven timing — not surveyed perimeters.
 - **The predicted zone is explicitly model-based potential** — labelled *"Spread potential,
-  not official perimeter"* on the terrain and in the panel, hidden once the reconstruction
-  ends. It is a potential extent, not a deterministic future perimeter.
-- Intermediate acreages are never displayed; only stage names, times, and an explicitly
-  "(reconstructed)" percent readout.
-- On-screen disclaimer: *"Observed and reconstructed spread zones with model-based spread
-  potential. Not an official perimeter. Not emergency guidance."*
+  not official perimeter"* on the terrain and in the panel, hidden once the scenario ends.
+- On-screen disclaimer: *"Simulated urban fire scenario with model-based spread potential.
+  Not a real incident. Not emergency guidance."*
 
 ## Tech
 
@@ -193,10 +190,10 @@ src/
   components/RescueRouteLayer.tsx blue escape path + green safe zone + framing
   components/TimelineControls.tsx play/pause/replay, stage scrubber, speeds
   components/InfoPanel.tsx       time, stage, drivers, legend, facts
-  data/kennethFacts.ts           official incident facts + disclaimer
-  data/kennethReconstruction.ts  stage rings, structure edges, camera framing
+  data/kennethFacts.ts           scenario facts, app title, disclaimer
+  data/kennethReconstruction.ts  generated urban stage rings, camera framing
   data/spreadModelConfig.ts      model tunables, styles, Help config + wording
-  data/helpScenario.ts           simulated GPS spot, road geometry, escape routes
+  data/helpScenario.ts           simulated GPS spot, street routes (car / foot)
   lib/arrivalTimeModel.ts        terrain grid + patchiness + anisotropic Dijkstra
   lib/helpController.ts          Help flow state machine (locate/ask/guide/escape)
   lib/rescueAssistant.ts         resource parsing + Gemini/LLM-phrased replies

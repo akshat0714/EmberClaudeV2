@@ -327,7 +327,7 @@ function buildScene(lib: Maps3D, container: HTMLElement): SceneRefs {
   map.append(frontLine);
 
   // on-terrain labels
-  const startMarker = makeMarker(lib, CLAMP, 'Start area', IGNITION_POINT);
+  const startMarker = makeMarker(lib, CLAMP, 'First house (ignition)', IGNITION_POINT);
   map.append(startMarker);
   const frontMarker = makeMarker(lib, CLAMP, 'Current active front', IGNITION_POINT);
   map.append(frontMarker);

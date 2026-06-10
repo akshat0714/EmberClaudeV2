@@ -1,9 +1,9 @@
 {
-  "name": "kenneth-fire-3d-reconstruction",
+  "name": "ember-urban-fire-3d",
   "private": true,
   "version": "2.0.0",
   "type": "module",
-  "description": "Google-Earth-style 3D historical reconstruction of the Kenneth Fire spread over terrain and structures.",
+  "description": "Ember \u2014 simulated urban fire spread and voice-guided evacuation over Google photorealistic 3D terrain.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

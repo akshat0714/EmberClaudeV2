@@ -12,7 +12,8 @@
  *               + uphillSlopeBonus        (flames preheat upslope fuel)
  *               + canyonChannelBonus      (terrain funnels wind along canyons)
  *               then × fuelPatchiness     (deterministic position noise → lobes)
- *               and  × barrierPenalty     (developed blocks nearly stop spread)
+ *               and  × developedModifier  (streets/defended lots slow — but do
+ *                                          not stop — house-to-house spread)
  *               and  × structureAdjacencyModifier (WUI fringe slows slightly)
  *
  *   travelTime = stepDistance / spreadSpeed
@@ -167,7 +168,7 @@ export interface TerrainGrid {
   /** Elevation gradient, m per m east / north. */
   gradX: Float32Array;
   gradY: Float32Array;
-  /** 0..1 burnable fuel (grass/chaparral = 1, developed ≈ 0.15). */
+  /** 0..1 burnable fuel (grass/chaparral = 1, developed = urbanFuel). */
   fuel: Float32Array;
   /** Local fuel-patchiness speed multiplier (deterministic noise). */
   patch: Float32Array;
@@ -232,7 +233,7 @@ export function getTerrainGrid(): TerrainGrid {
 
       const dev = isDeveloped(lat, lng);
       g.developed[i] = dev ? 1 : 0;
-      g.fuel[i] = dev ? 0.15 : 1;
+      g.fuel[i] = dev ? SPEEDS.urbanFuel : 1;
       if (!dev && isNearDevelopment(lat, lng, WUI_FRINGE_M)) g.wui[i] = 1;
 
       // canyon channeling: strongest nearby canyon wins

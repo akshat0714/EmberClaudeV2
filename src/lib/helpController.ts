@@ -1,30 +1,30 @@
 /**
  * Help-flow rescue controller.
  *
- * One press of "Help" runs the whole rescue simulation:
+ * One press of "Help" runs the whole rescue simulation — WITHOUT resetting
+ * the slow-burning fire:
  *
- *  1. LOCATE — the world clock restarts at ignition and the app "locates"
- *     the person: the simulated GPS fix drops onto E Las Virgenes Canyon Rd,
- *     directly in the modeled spread path (clear blue dot on the map).
- *  2. ASK — the assistant asks what they have with them (car / bike / on
- *     foot, any disability). The answer is parsed locally; replies are
- *     phrased by the LLM when a Gemini key is set, with a deterministic
- *     fallback. The resource sets the movement speed.
- *  3. GUIDE — the authored escape routes (real road alignments) are
- *     risk-scored against the live fire model; the best survivor draws as
- *     the blue path and the assistant reads out qualitative directions
- *     (compass + road name). Routes and the safe destination are
- *     re-validated on every model refresh; if the modeled spread cuts the
- *     route, the backup is chosen and announced — and if nothing survives,
- *     the app says so honestly instead of faking a route.
+ *  1. LOCATE — the app "locates" the person: the simulated GPS fix drops
+ *     onto a West Hills residential street, two blocks downwind of the
+ *     burning homes (clear blue dot on the map).
+ *  2. ASK — the assistant asks, by voice, whether they have a car or are
+ *     on foot (a disability mention plans a calmer pace). The answer is
+ *     parsed locally; replies are phrased by the LLM when a Gemini key is
+ *     set, with a deterministic fallback.
+ *  3. GUIDE — the street-grid escape routes allowed for that answer are
+ *     risk-scored against the live fire model: a car runs far east on the
+ *     boulevards to an evacuation center; on foot the walkway shortcut
+ *     drops to Victory Blvd and a nearby park. The winner draws as the
+ *     blue path with spoken compass + street directions. Everything is
+ *     re-validated on every model refresh; a cut route switches to the
+ *     backup, and if nothing survives the app says so honestly.
  *  4. ESCAPE — the simulated person responds perfectly: they follow the
- *     blue path in world time at their resource's speed until they reach
- *     the green safe zone.
+ *     blue path in world time at their speed until they reach the green
+ *     safe zone.
  *
- * World-time coupling: while the person is replying the world runs in real
- * time (1 fire-minute = 1 real minute); once they are moving it
- * fast-forwards (1 fire-minute = 1 real second); after arrival the demo's
- * normal playback speed resumes. Chatting literally costs world time.
+ * World-time coupling: the fire HOLDS STILL while the person is talking,
+ * fast-forwards while they move (1 fire-minute = 1 real second), and creeps
+ * at the idle rate whenever Help is off. Talking never costs them ground.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -92,12 +92,9 @@ export interface HelpState {
   clockRate: number | null;
 }
 
-export type ResourceChoice = 'car' | 'bike' | 'foot' | 'limited';
-
 export interface HelpActions {
   toggle: () => void;
   sendChatMessage: (text: string) => void;
-  chooseResource: (choice: ResourceChoice) => void;
   /**
    * Mark an interaction as active (typing, speaking into the mic, or the
    * assistant's voice playing). While anything is active — and for a short
@@ -123,16 +120,8 @@ const INITIAL_STATE: HelpState = {
   clockRate: null,
 };
 
-const RESOURCE_PHRASES: Record<ResourceChoice, string> = {
-  car: 'I have a car.',
-  bike: 'I have a bike.',
-  foot: "I'm on foot.",
-  limited: "I'm disabled — I need extra time to move.",
-};
-
 function movementMps(mode: TransportMode | null, accessibilityNote: string | null): number {
   if (mode === 'car') return HELP_CONFIG.movement.carMps;
-  if (mode === 'bike') return HELP_CONFIG.movement.bikeMps;
   if (accessibilityNote) return HELP_CONFIG.movement.limitedMps;
   return HELP_CONFIG.movement.footMps;
 }
@@ -226,7 +215,6 @@ interface ControllerRefs {
 export function useHelpController(
   snapshot: FireRiskSnapshot | null,
   worldTimeMs: number,
-  restartWorld: () => void,
 ): { state: HelpState; actions: HelpActions } {
   const [state, setState] = useState<HelpState>(INITIAL_STATE);
   const refs = useRef<ControllerRefs>({
@@ -251,8 +239,6 @@ export function useHelpController(
     lastWorldMs: null,
   });
   refs.current.snapshot = snapshot;
-  const restartWorldRef = useRef(restartWorld);
-  restartWorldRef.current = restartWorld;
 
   const patch = useCallback((partial: Partial<HelpState>) => {
     setState((s) => ({ ...s, ...partial }));
@@ -440,9 +426,8 @@ export function useHelpController(
       r.moveCarryM = 0;
       r.alongM = 0;
       r.interactCount = 0;
-      // Restart the shared world clock at ignition so the rescue plays out
-      // against the full fire timeline; it holds still while we talk.
-      restartWorldRef.current();
+      // The fire is NOT reset — the rescue joins the world wherever the
+      // slow-burning fire has gotten to; it simply holds while we talk.
       setState({
         ...INITIAL_STATE,
         enabled: true,
@@ -459,9 +444,6 @@ export function useHelpController(
       }, HELP_CONFIG.locatingMs);
     },
     sendChatMessage: handleUserText,
-    chooseResource: (choice) => {
-      handleUserText(RESOURCE_PHRASES[choice]);
-    },
     setInteracting: (active) => {
       const r = refs.current;
       r.interactCount = Math.max(0, r.interactCount + (active ? 1 : -1));
@@ -552,25 +534,22 @@ export function useHelpController(
 
   // Shared world-clock rate: the fire HOLDS STILL while the person is
   // talking (speaking, typing, or hearing the assistant) and for a short
-  // moment after; it fast-forwards while they move, and returns to the
-  // app's normal playback once they are safe.
+  // moment after; it fast-forwards while they move and after they are safe
+  // (so the judges see what they escaped). Idle slow-burn is applied by the
+  // app whenever Help is off.
   useEffect(() => {
     if (!state.enabled) return;
     const compute = () => {
       const r = refs.current;
-      let rate: number | null;
-      if (r.arrived) {
-        rate = null; // back to the app's default playback
-      } else {
-        const talking =
-          r.status === 'locating' ||
+      const talking =
+        !r.arrived &&
+        (r.status === 'locating' ||
           r.status === 'need-resource' ||
           r.status === 'routing' ||
           r.interactCount > 0 ||
           r.chatBusy ||
-          Date.now() - r.lastChatAt < HELP_CONFIG.clock.holdAfterChatMs;
-        rate = talking ? HELP_CONFIG.clock.holdRate : HELP_CONFIG.clock.fastRate;
-      }
+          Date.now() - r.lastChatAt < HELP_CONFIG.clock.holdAfterChatMs);
+      const rate = talking ? HELP_CONFIG.clock.holdRate : HELP_CONFIG.clock.fastRate;
       setState((s) => (s.clockRate === rate ? s : { ...s, clockRate: rate }));
     };
     compute();

@@ -12,7 +12,7 @@
  */
 import { HELP_WORDING } from '../data/spreadModelConfig';
 
-export type TransportMode = 'car' | 'bike' | 'foot';
+export type TransportMode = 'car' | 'foot';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -54,9 +54,10 @@ export function parseTransportMode(text: string): TransportMode | null {
   if (/\b(car|truck|suv|van|jeep|vehicle|drive|driving|motorcycle|motorbike)\b/.test(t)) {
     return 'car';
   }
-  if (/\b(bike|bicycle|cycle|cycling|e-?bike|scooter)\b/.test(t)) return 'bike';
   if (
-    /\b(foot|walk|walking|run|running|hike|hiking|nothing|none|no car|don'?t have)\b/.test(t)
+    /\b(foot|walk|walking|run|running|bike|bicycle|scooter|nothing|none|no car|don'?t have)\b/.test(
+      t,
+    )
   ) {
     return 'foot';
   }
@@ -78,61 +79,50 @@ export function parseAccessibilityNote(text: string): string | null {
 function etaPhrase(ctx: AssistantContext): string {
   if (ctx.etaMinutes === null) return '';
   const minutes = Math.max(1, Math.round(ctx.etaMinutes));
-  return minutes === 1 ? ' It’s about a minute.' : ` It’s about ${minutes} minutes.`;
+  return minutes === 1 ? ' About one minute.' : ` About ${minutes} minutes.`;
 }
 
-/** Deterministic fallback replies — calm, short, written to be spoken aloud. */
+/** Deterministic fallback replies — short, simple, written to be spoken slowly. */
 export function localAssistantReply(ctx: AssistantContext, userMessage?: string | null): string {
   void userMessage;
   const pickup = ctx.destinationKind === 'pickup-point';
   switch (ctx.event) {
     case 'ask-resource':
-      return (
-        `I’ve found you on ${ctx.locationLabel}, close to the fire area. ` +
-        'To get you out the best way, tell me — do you have a car or a bike with you, or are you on foot? ' +
-        'And let me know if you have a disability or anything that slows you down.'
-      );
+      return 'I found you. The fire is close. Do you have a car, or are you on foot?';
     case 'clarify-resource':
-      return 'Sorry — do you have a car, a bike, or are you on foot? If you have a disability, tell me and I’ll plan for that.';
+      return 'Sorry. Do you have a car, or are you on foot?';
     case 'route-set': {
-      const open =
-        ctx.mode === 'car'
-          ? 'Okay — you have a car, so drive'
-          : ctx.mode === 'bike'
-            ? 'Okay — you have a bike, so ride'
-            : ctx.accessibilityNote
-              ? 'Okay — we’ll keep this short and steady. Head'
-              : 'Okay — head';
-      const meet = pickup && ctx.mode === 'foot' ? ' Responders will meet you there.' : '';
-      return (
-        `${open} ${ctx.routeSummary ?? 'along the highlighted road'}.${etaPhrase(ctx)}` +
-        `${meet} Follow the blue path on your map — I’ll stay with you and tell you if anything changes.`
-      );
+      const open = ctx.mode === 'car' ? 'You have a car. Good.' : 'Okay, on foot.';
+      const step = ctx.currentStep ?? 'Follow the highlighted street.';
+      return `${open} ${step}${etaPhrase(ctx)} Follow the blue path.`;
     }
-    case 'reroute':
-      return `Change of plan — that way isn’t looking safe anymore. New route: ${ctx.routeSummary ?? 'follow the updated blue path'}.${etaPhrase(ctx)}`;
+    case 'reroute': {
+      const step = ctx.currentStep ?? 'Follow the new blue path.';
+      return `Change of plan. ${step} Follow the new blue path.`;
+    }
     case 'arrived':
       return pickup
-        ? 'You’ve made it — you’re at the pickup point, well clear of the fire. Stay right there; responders are on their way to you.'
-        : 'You’ve made it — you’re at the safe zone, well clear of the fire. Stay there, you’re safe now.';
+        ? 'You made it. Stay here. Help is coming to you.'
+        : 'You made it. You are safe here. Stay put.';
     case 'no-route':
       return HELP_WORDING.statusNone;
     case 'chat':
     default: {
       if (ctx.currentStep) {
-        return `${ctx.currentStep}${etaPhrase(ctx)} You’re doing fine — keep following the blue path.`;
+        return `${ctx.currentStep}${etaPhrase(ctx)} You are doing fine.`;
       }
-      return 'I’m right here with you. Tell me if you have a car, a bike, or are on foot, and I’ll pick the safest way out.';
+      return 'I am here. Do you have a car, or are you on foot?';
     }
   }
 }
 
-const SYSTEM_PROMPT = `You are a calm evacuation assistant guiding one person away from a wildfire. Rules:
-- Reply with plain text only, 1–3 short sentences that sound natural SPOKEN ALOUD — warm, steady and clear, like a good emergency dispatcher. No lists, no markdown, no emojis, no abbreviations (say "minutes", never "min" or "km").
-- You only describe and explain; the app computes the route and safety. Use ONLY the context facts given — never invent road names, closures, shelters, or fire positions.
-- Always give directions qualitatively: the compass direction plus the road name from the context, e.g. "head NORTH-EAST on E Las Virgenes Canyon Rd".
-- When asking what the person has, ask about: a car, a bike, on foot, and whether a disability slows them down. The way out depends on it.
-- If the destination is a pickup point, reassure them that responders will meet them there.
+const SYSTEM_PROMPT = `You are a calm voice assistant guiding one person away from a fire in their neighborhood. Rules:
+- At most 2 short sentences, around 18 words in total. Short, simple, everyday words. Calm and unhurried, like a kind dispatcher speaking slowly.
+- Plain text only — it is read aloud. No lists, no markdown, no emojis, no abbreviations (say "minutes").
+- You only describe and explain; the app computes the route and safety. Use ONLY the context facts given — never invent street names, shelters, or fire positions.
+- Give directions as compass word plus street name from the context, e.g. "go EAST on Victory Blvd".
+- First you need to know what they have: a car, or on foot. The way out depends on it. If they mention a disability, plan calm and steady, no rush words.
+- If the destination is a pickup point, tell them help will meet them there.
 - Never promise a guaranteed-safe route — it is the suggested route that avoids the fire-risk zones.`;
 
 const GEMINI_MODEL = 'gemini-2.0-flash';

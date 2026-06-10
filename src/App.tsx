@@ -13,7 +13,7 @@ import {
   DISCLAIMER,
 } from './data/kennethFacts';
 import { SPREAD_STAGES, STRUCTURE_EDGES } from './data/kennethReconstruction';
-import { PREDICTION_ZONE } from './data/spreadModelConfig';
+import { HELP_CONFIG, PREDICTION_ZONE } from './data/spreadModelConfig';
 import {
   interpolateRings,
   prepareTransition,
@@ -113,12 +113,17 @@ function ReconstructionApp({ apiKey }: { apiKey: string }) {
     horizonMinutes: PREDICTION_ZONE.primaryMinutes,
   });
   const [risk, setRisk] = useState<FireRiskSnapshot | null>(null);
-  const help = useHelpController(risk, clock.time, clock.replay);
+  const help = useHelpController(risk, clock.time);
 
-  // The rescue sim drives the shared world clock: real time while the person
-  // is replying, fast-forward while they move, default playback once safe.
+  // The shared world clock: before Help is pressed the fire creeps at the
+  // idle slow-burn rate (never reset); during the rescue it holds while the
+  // person talks and fast-forwards while they move.
   useEffect(() => {
-    clock.setRateOverride(help.state.enabled ? help.state.clockRate : null);
+    clock.setRateOverride(
+      help.state.enabled && help.state.clockRate !== null
+        ? help.state.clockRate
+        : HELP_CONFIG.clock.idleRate,
+    );
   }, [clock.setRateOverride, help.state.enabled, help.state.clockRate]);
 
   const rescueView: RescueView = {

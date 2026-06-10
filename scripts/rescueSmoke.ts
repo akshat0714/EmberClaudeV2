@@ -1,12 +1,13 @@
 /**
- * Node smoke test for the Help rescue flow against the live spread model.
+ * Node smoke test for the urban Help rescue flow against the live model.
  *
- * Replays the fire timeline (warped multi-point front, exactly as the scene
- * computes it), drops the simulated person on E Las Virgenes Canyon Rd,
- * lets the controller's pure route selection pick a way out, then walks the
- * person along the blue path in fire time while re-validating the remaining
- * path every fire-minute — asserting they are never inside the fire and
- * that they reach the safe zone for every resource type.
+ * Replays the simulated West Hills fire (warped multi-point front, exactly
+ * as the scene computes it), drops the person on the residential street,
+ * lets the controller's pure route selection pick a way out for "car" and
+ * "on foot" (plus limited mobility), then walks the person along the blue
+ * path in fire time while re-validating the remaining path every
+ * fire-minute — asserting they are never inside the fire and reach the
+ * safe zone. Also verifies the generated stage rings nest strictly.
  *
  * Run: npx tsx scripts/rescueSmoke.ts
  */
@@ -24,6 +25,7 @@ import {
 import { computeFrontierGamma, warpFront } from '../src/lib/frontierWarp';
 import {
   prepareTransition,
+  ringAreaAcres,
   ringCentroid,
   type LatLng,
 } from '../src/lib/interpolatePolygon';
@@ -75,6 +77,24 @@ function snapshotAt(timeMs: number): FireRiskSnapshot {
   };
 }
 
+// ---- generated stage rings: strict nesting, house-scale start ----
+{
+  let nested = true;
+  for (let j = 0; j + 1 < SPREAD_STAGES.length; j++) {
+    for (const p of SPREAD_STAGES[j].ring) {
+      if (!pointInRing(p, SPREAD_STAGES[j + 1].ring)) nested = false;
+    }
+  }
+  check('stage rings nest strictly (house → block → region)', nested);
+  const firstAcres = ringAreaAcres(SPREAD_STAGES[0].ring);
+  const finalAcres = ringAreaAcres(SPREAD_STAGES[SPREAD_STAGES.length - 1].ring);
+  check(
+    'starts at single-house scale and ends at a neighborhood region',
+    firstAcres < 0.5 && finalAcres > 80,
+    `${firstAcres.toFixed(2)} → ${Math.round(finalAcres)} acres`,
+  );
+}
+
 // ---- terrain patchiness sanity ----
 {
   const g = getTerrainGrid();
@@ -89,20 +109,22 @@ function snapshotAt(timeMs: number): FireRiskSnapshot {
     min >= 0.4 && max <= 1.7 && max - min > 0.4,
     `range ${min.toFixed(2)}..${max.toFixed(2)}`,
   );
-  const g2 = getTerrainGrid();
-  check('patchiness is deterministic (cached grid stable)', g2.patch[1234] === g.patch[1234]);
 }
 
-// ---- the person's spot really is in the fire's path ----
+// Help is pressed while the fire is still creeping (idle slow burn) —
+// roughly 8 fire-minutes after ignition, with NO reset of the fire.
+const HELP_AT = stageTimes[0] + 8 * 60_000;
+
+// ---- the person's street really is in the fire's path ----
 {
   const finalRing = SPREAD_STAGES[SPREAD_STAGES.length - 1].ring;
   check(
-    'simulated GPS position is overrun by the final footprint (susceptible)',
+    'simulated GPS position is overrun by the final region (susceptible)',
     pointInRing(HELP_GPS_POSITION, finalRing),
   );
-  const early = snapshotAt(stageTimes[0] + 10 * 60_000);
+  const early = snapshotAt(HELP_AT);
   check(
-    'person is not inside the fire at rescue start',
+    'person is not inside the fire when Help is pressed',
     !pointInRing(HELP_GPS_POSITION, early.frontRing),
     `risk class: ${classifyUserRisk(HELP_GPS_POSITION, early)}`,
   );
@@ -119,24 +141,22 @@ for (const route of ESCAPE_ROUTES) {
 }
 
 // ---- the way out depends on what the person has ----
-// Car and bike drive/ride out by road into West Hills; on foot (including
-// limited mobility) the app sends them on the short trail straight SOUTH,
-// out of the fire's path — never on the long road trek past its flank.
-const RESOURCES: Array<{ label: string; mode: 'car' | 'bike' | 'foot'; mps: number; expect: string }> = [
-  { label: 'car', mode: 'car', mps: HELP_CONFIG.movement.carMps, expect: 'east-west-hills' },
-  { label: 'bike', mode: 'bike', mps: HELP_CONFIG.movement.bikeMps, expect: 'east-west-hills' },
-  { label: 'foot', mode: 'foot', mps: HELP_CONFIG.movement.footMps, expect: 'south-hidden-hills' },
+// A car runs far east on the boulevards to the evacuation center; on foot
+// (including limited mobility) the walkway shortcut leads to the nearby
+// park — short, crosswind, never toward the fire.
+const RESOURCES: Array<{ label: string; mode: 'car' | 'foot'; mps: number; expect: string }> = [
+  { label: 'car', mode: 'car', mps: HELP_CONFIG.movement.carMps, expect: 'car-victory-east' },
+  { label: 'foot', mode: 'foot', mps: HELP_CONFIG.movement.footMps, expect: 'foot-victory-park' },
   {
     label: 'limited',
     mode: 'foot',
     mps: HELP_CONFIG.movement.limitedMps,
-    expect: 'south-hidden-hills',
+    expect: 'foot-victory-park',
   },
 ];
 
 {
-  const t0 = stageTimes[0] + 4 * 60_000; // locate + chat ≈ 4 fire-min
-  const snap = snapshotAt(t0);
+  const snap = snapshotAt(HELP_AT);
   for (const r of RESOURCES) {
     const choice = selectEscapeRoute(snap, HELP_GPS_POSITION, r.mps, r.mode);
     check(
@@ -147,16 +167,14 @@ const RESOURCES: Array<{ label: string; mode: 'car' | 'bike' | 'foot'; mps: numb
   }
 }
 
-// ---- full escape simulation for every resource type ----
-for (const { label, mode, mps, expect } of RESOURCES) {
-  const t0 = stageTimes[0] + 4 * 60_000;
-  let snap = snapshotAt(t0);
+// ---- full escape simulation ----
+function simulateEscape(label: string, mode: 'car' | 'foot', mps: number, pressAt: number): void {
+  let snap = snapshotAt(pressAt);
   const first = selectEscapeRoute(snap, HELP_GPS_POSITION, mps, mode);
   if (!first) {
     check(`escape (${label}): route available`, false);
-    continue;
+    return;
   }
-  void expect;
   let path = first.path;
   let destination = first.route.destination;
   let routeId = first.route.id;
@@ -168,7 +186,7 @@ for (const { label, mode, mps, expect } of RESOURCES) {
   let minutes = 0;
 
   for (; minutes < 240 && !arrived && !burned; minutes++) {
-    const now = t0 + minutes * 60_000;
+    const now = pressAt + minutes * 60_000;
     snap = snapshotAt(now);
     if (pointInRing(pos, snap.frontRing)) {
       burned = true;
@@ -215,8 +233,12 @@ for (const { label, mode, mps, expect } of RESOURCES) {
     `route ${routeId}, ${minutes} fire-min, reroutes ${reroutes}, end ${Math.round(finalDist)} m from front`,
   );
   if (label === 'limited') {
-    check('limited-mobility escape stays short', arrived && minutes <= 40, `${minutes} fire-min`);
+    check('limited-mobility escape stays short', arrived && minutes <= 30, `${minutes} fire-min`);
   }
 }
+
+for (const r of RESOURCES) simulateEscape(r.label, r.mode, r.mps, HELP_AT);
+// a later press (fire already at the neighboring-homes stage) still works
+simulateEscape('foot, later press', 'foot', HELP_CONFIG.movement.footMps, stageTimes[0] + 20 * 60_000);
 
 process.exit(failures > 0 ? 1 : 0);

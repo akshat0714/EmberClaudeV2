@@ -71,14 +71,15 @@ export function speakText(
   const utterance = new SpeechSynthesisUtterance(spoken);
   const voice = pickCalmVoice();
   if (voice) utterance.voice = voice;
-  utterance.rate = 1.0;
+  // Unhurried, steady delivery — slightly slower than normal speech.
+  utterance.rate = 0.88;
   utterance.pitch = 1.0;
   utterance.volume = 1;
   utterance.onend = finish;
   utterance.onerror = finish;
   // Some browsers drop end events for cancelled/blocked utterances; the
   // watchdog guarantees onEnd (and the fire clock) can never get stuck.
-  watchdog = window.setTimeout(finish, 2000 + spoken.length * 90);
+  watchdog = window.setTimeout(finish, 3000 + spoken.length * 130);
   window.speechSynthesis.speak(utterance);
   return () => {
     window.speechSynthesis.cancel();

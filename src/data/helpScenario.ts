@@ -1,33 +1,28 @@
 /**
- * SIMULATED rescue scenario for the Help flow.
+ * SIMULATED rescue scenario for the Help flow — urban edition.
  *
- * When someone presses "Help", the demo "locates" them on
- * E Las Virgenes Canyon Rd — the dirt road through Upper Las Virgenes Canyon
- * Open Space — about 1 km downwind (west-south-west) of the Kenneth Fire
- * ignition point, directly in the modeled spread path. That position, the
- * road geometry, and the safe destinations here are all SIMULATED demo data
- * (every name carries "(simulated)" and the UI repeats it); the fire-risk
- * checks against them use the live reconstruction model.
+ * When someone presses "Help", the demo "locates" them on a residential
+ * street in West Hills, two blocks downwind (west-south-west) of the
+ * burning homes — directly in the modeled spread path. The position, the
+ * street geometry, and the safe destinations here are all SIMULATED demo
+ * data (names carry "(simulated)"); the fire-risk checks against them use
+ * the live spread model.
  *
- * Escape routes are hand-authored along real road alignments so the blue
- * path is always a physically possible way out — and WHICH one is offered
- * depends on what the person has with them:
+ * Escape routes follow the real street grid, and WHICH one is offered
+ * depends on what the person has:
  *
- *  - EAST (car / bike): up out of the canyon along E Las Virgenes Canyon Rd
- *    to the Valley Circle Blvd gate, then east on Vanowen St into West
- *    Hills — out by road, into the city, away from the WSW spread.
- *  - SOUTH (on foot / disabled): the short open-space trail straight south,
- *    perpendicular to the wind-driven spread axis, to a pickup point at the
- *    Hidden Hills edge — minutes of crosswind walking that never heads
- *    toward the fire, instead of a long road trek past its flank.
- *  - SOUTH-WEST (backup, any mode): along E Las Virgenes Canyon Rd to the
- *    canyon junction, then south on Las Virgenes Canyon Rd toward
- *    Las Virgenes Rd, Calabasas.
+ *  - CAR: get far away fast on the boulevards — west to Valley Circle Blvd,
+ *    south to Victory Blvd, then EAST on Victory Blvd ~4.5 km to an
+ *    evacuation center at Shoup Ave. Upwind, away from the spread.
+ *  - ON FOOT: use the streets to your advantage — a pedestrian walkway
+ *    between the houses (a shortcut cars can't take) drops straight SOUTH
+ *    to Victory Blvd, then EAST a few blocks to a pocket-park safe zone.
+ *    Short, crosswind, never toward the fire. A NORTH route to a Vanowen St
+ *    staging point is the on-foot backup.
  *
  * Candidates allowed for the person's mode are risk-scored against the live
  * model every refresh; the surviving lower-risk one is shown. A production
- * deployment must replace all of this with official evacuation zones,
- * shelters, and road status.
+ * deployment must replace all of this with official evacuation data.
  */
 import type { LatLng } from '../lib/interpolatePolygon';
 import type { TransportMode } from '../lib/rescueAssistant';
@@ -55,203 +50,179 @@ export interface RouteStep {
 export interface EscapeRoute {
   id: string;
   destination: SafeDestination;
-  /** Which transport modes can physically use this route (trails exclude cars). */
+  /** Which transport modes can physically use this route (walkways exclude cars). */
   allowedModes: TransportMode[];
-  /** Full road polyline from the simulated GPS position to the destination. */
+  /** Full street polyline from the simulated GPS position to the destination. */
   path: LatLng[];
   steps: RouteStep[];
-  /** One-line qualitative summary the assistant reads out. */
+  /** One-line qualitative summary (roads + compass words). */
   summary: string;
 }
 
-/** Where the simulated GPS fix drops: on E Las Virgenes Canyon Rd. */
-export const HELP_GPS_POSITION: LatLng = { lat: 34.1828, lng: -118.68 };
+/** Where the simulated GPS fix drops: a street two blocks downwind. */
+export const HELP_GPS_POSITION: LatLng = { lat: 34.1895, lng: -118.6588 };
 
-export const HELP_LOCATION_LABEL = 'E Las Virgenes Canyon Rd';
-export const HELP_LOCATION_DETAIL =
-  'Upper Las Virgenes Canyon Open Space — downwind of the modeled fire';
+export const HELP_LOCATION_LABEL = 'Residential street — West Hills';
+export const HELP_LOCATION_DETAIL = 'two blocks downwind of the burning homes';
 
-const WEST_HILLS_PICKUP: SafeDestination = {
-  id: 'west-hills-pickup',
-  name: 'Pickup point — Vanowen St, West Hills (simulated)',
-  position: { lat: 34.1937, lng: -118.645 },
-  kind: 'pickup-point',
-};
-
-const CALABASAS_STAGING: SafeDestination = {
-  id: 'calabasas-staging',
-  name: 'Staging area — Las Virgenes Rd, Calabasas (simulated)',
-  position: { lat: 34.161, lng: -118.7038 },
+const VICTORY_EVAC_CENTER: SafeDestination = {
+  id: 'victory-shoup-center',
+  name: 'Evacuation center — Victory Blvd × Shoup Ave (simulated)',
+  position: { lat: 34.1862, lng: -118.6125 },
   kind: 'safe-zone',
 };
 
-const HIDDEN_HILLS_PICKUP: SafeDestination = {
-  id: 'hidden-hills-pickup',
-  name: 'Pickup point — Hidden Hills north gate (simulated)',
-  position: { lat: 34.1672, lng: -118.685 },
+const VICTORY_POCKET_PARK: SafeDestination = {
+  id: 'victory-pocket-park',
+  name: 'Safe zone — pocket park on Victory Blvd (simulated)',
+  position: { lat: 34.186, lng: -118.644 },
+  kind: 'safe-zone',
+};
+
+const VANOWEN_STAGING: SafeDestination = {
+  id: 'vanowen-staging',
+  name: 'Pickup point — Vanowen St staging (simulated)',
+  position: { lat: 34.1937, lng: -118.631 },
   kind: 'pickup-point',
 };
 
-/**
- * EAST: E Las Virgenes Canyon Rd climbs north-east out of the drainage,
- * swings east along the high ground north of the burn area, exits at the
- * Valley Circle Blvd gate, then Vanowen St runs east into West Hills.
- */
-const EAST_PATH: LatLng[] = [
+/** CAR: around the block to the boulevards, then far east, upwind. */
+const CAR_PATH: LatLng[] = [
   HELP_GPS_POSITION,
-  { lat: 34.1848, lng: -118.6786 },
-  { lat: 34.1868, lng: -118.677 },
-  { lat: 34.1888, lng: -118.6752 },
-  { lat: 34.1906, lng: -118.673 },
-  { lat: 34.1918, lng: -118.6706 },
-  { lat: 34.1926, lng: -118.668 },
-  { lat: 34.1932, lng: -118.6654 },
-  { lat: 34.1936, lng: -118.663 },
-  { lat: 34.1937, lng: -118.6604 }, // gate at Valley Circle Blvd
-  { lat: 34.1937, lng: -118.656 },
-  { lat: 34.1937, lng: -118.6515 },
+  { lat: 34.1895, lng: -118.6605 }, // west to Valley Circle Blvd
+  { lat: 34.1878, lng: -118.6606 },
+  { lat: 34.1862, lng: -118.6607 }, // south to Victory Blvd
+  { lat: 34.1862, lng: -118.656 },
+  { lat: 34.1862, lng: -118.6505 },
+  { lat: 34.1862, lng: -118.645 },
+  { lat: 34.1862, lng: -118.639 },
+  { lat: 34.1862, lng: -118.633 },
+  { lat: 34.1862, lng: -118.627 },
+  { lat: 34.1862, lng: -118.621 },
+  { lat: 34.1862, lng: -118.616 },
+  { lat: 34.1862, lng: -118.6125 }, // evacuation center at Shoup Ave
+];
+
+/** FOOT: the mid-block walkway shortcut south, then east on Victory Blvd. */
+const FOOT_PATH: LatLng[] = [
+  HELP_GPS_POSITION,
+  { lat: 34.1884, lng: -118.6587 },
+  { lat: 34.1873, lng: -118.6586 }, // pedestrian walkway between the houses
+  { lat: 34.1862, lng: -118.6585 }, // Victory Blvd
+  { lat: 34.1862, lng: -118.654 },
+  { lat: 34.1862, lng: -118.65 },
+  { lat: 34.1861, lng: -118.647 },
+  { lat: 34.186, lng: -118.644 }, // pocket park
+];
+
+/** FOOT backup: north to Vanowen St, then east to the staging point. */
+const NORTH_PATH: LatLng[] = [
+  HELP_GPS_POSITION,
+  { lat: 34.1916, lng: -118.6589 },
+  { lat: 34.1937, lng: -118.659 }, // Vanowen St
+  { lat: 34.1937, lng: -118.654 },
   { lat: 34.1937, lng: -118.648 },
-  { lat: 34.1937, lng: -118.645 },
-];
-
-/**
- * SOUTH: the short open-space trail from the road straight south to the
- * Hidden Hills edge — perpendicular to the wind-driven spread axis, so every
- * step opens distance from the fire's path. Foot traffic only (gated trail);
- * responders meet the person at the pickup point.
- */
-const SOUTH_PATH: LatLng[] = [
-  HELP_GPS_POSITION,
-  { lat: 34.181, lng: -118.681 },
-  { lat: 34.1791, lng: -118.6818 },
-  { lat: 34.1772, lng: -118.6825 },
-  { lat: 34.1753, lng: -118.6831 },
-  { lat: 34.1734, lng: -118.6837 },
-  { lat: 34.1715, lng: -118.6842 },
-  { lat: 34.1696, lng: -118.6846 },
-  { lat: 34.1672, lng: -118.685 }, // Hidden Hills north gate
-];
-
-/**
- * SOUTH-WEST: E Las Virgenes Canyon Rd follows the canyon south-west (south
- * of the drainage axis the model channels fire along), then Las Virgenes
- * Canyon Rd runs south through the trailhead gate toward Calabasas.
- */
-const SOUTHWEST_PATH: LatLng[] = [
-  HELP_GPS_POSITION,
-  { lat: 34.1812, lng: -118.6826 },
-  { lat: 34.1794, lng: -118.6852 },
-  { lat: 34.1774, lng: -118.6876 },
-  { lat: 34.1752, lng: -118.6898 },
-  { lat: 34.173, lng: -118.692 },
-  { lat: 34.1712, lng: -118.6946 },
-  { lat: 34.17, lng: -118.6976 },
-  { lat: 34.1696, lng: -118.7006 }, // junction with Las Virgenes Canyon Rd
-  { lat: 34.168, lng: -118.7018 },
-  { lat: 34.1662, lng: -118.7026 },
-  { lat: 34.1644, lng: -118.7032 }, // trailhead gate
-  { lat: 34.1626, lng: -118.7036 },
-  { lat: 34.161, lng: -118.7038 },
+  { lat: 34.1937, lng: -118.642 },
+  { lat: 34.1937, lng: -118.636 },
+  { lat: 34.1937, lng: -118.631 }, // staging point
 ];
 
 export const ESCAPE_ROUTES: EscapeRoute[] = [
   {
-    id: 'east-west-hills',
-    destination: WEST_HILLS_PICKUP,
-    allowedModes: ['car', 'bike', 'foot'],
-    path: EAST_PATH,
+    id: 'car-victory-east',
+    destination: VICTORY_EVAC_CENTER,
+    allowedModes: ['car'],
+    path: CAR_PATH,
     summary:
-      'NORTH-EAST up E Las Virgenes Canyon Rd, then EAST to the Valley Circle Blvd gate and EAST on Vanowen St into West Hills',
+      'WEST to Valley Circle Blvd, SOUTH to Victory Blvd, then EAST on Victory Blvd to the evacuation center at Shoup Ave',
     steps: [
       {
-        road: 'E Las Virgenes Canyon Rd',
-        direction: 'NORTH-EAST',
-        arrow: '↗',
-        text: 'Head NORTH-EAST up E Las Virgenes Canyon Rd, climbing out of the canyon — the wind is pushing the fire the other way, to the west.',
+        road: 'Your street',
+        direction: 'WEST',
+        arrow: '←',
+        text: 'Drive WEST, away from the burning homes, to Valley Circle Blvd.',
         fromIndex: 0,
       },
       {
-        road: 'E Las Virgenes Canyon Rd',
-        direction: 'EAST',
-        arrow: '→',
-        text: 'Keep EAST along the road over the high ground toward the Valley Circle Blvd gate. Do not turn back west.',
-        fromIndex: 4,
+        road: 'Valley Circle Blvd',
+        direction: 'SOUTH',
+        arrow: '↓',
+        text: 'Turn LEFT. Go SOUTH to Victory Blvd.',
+        fromIndex: 1,
       },
       {
-        road: 'Vanowen St',
+        road: 'Victory Blvd',
         direction: 'EAST',
         arrow: '→',
-        text: 'Through the gate, continue EAST on Vanowen St into West Hills, putting the neighborhood between you and the fire.',
-        fromIndex: 9,
+        text: 'Turn LEFT. Go EAST on Victory Blvd, straight away from the fire.',
+        fromIndex: 3,
       },
       {
-        road: 'Vanowen St',
+        road: 'Victory Blvd',
         direction: 'EAST',
         arrow: '→',
-        text: 'The pickup point is just ahead on Vanowen St — stay EAST until you reach it.',
-        fromIndex: 12,
+        text: 'The evacuation center is ahead at Shoup Ave.',
+        fromIndex: 10,
       },
     ],
   },
   {
-    id: 'south-hidden-hills',
-    destination: HIDDEN_HILLS_PICKUP,
+    id: 'foot-victory-park',
+    destination: VICTORY_POCKET_PARK,
     allowedModes: ['foot'],
-    path: SOUTH_PATH,
-    summary:
-      'SOUTH on the open-space trail, straight out of the fire’s path, to the pickup point at the Hidden Hills north gate',
+    path: FOOT_PATH,
+    summary: 'SOUTH through the walkway to Victory Blvd, then EAST to the pocket park',
     steps: [
       {
-        road: 'Open-space trail',
+        road: 'Walkway between the houses',
         direction: 'SOUTH',
         arrow: '↓',
-        text: 'Head SOUTH on the trail, directly out of the fire’s path — the wind is pushing the fire west, away from this line.',
+        text: 'Take the walkway SOUTH between the houses — a shortcut cars can’t use.',
         fromIndex: 0,
       },
       {
-        road: 'Open-space trail',
-        direction: 'SOUTH',
-        arrow: '↓',
-        text: 'Keep SOUTH toward the Hidden Hills edge — every step opens distance from the fire.',
-        fromIndex: 4,
+        road: 'Victory Blvd',
+        direction: 'EAST',
+        arrow: '→',
+        text: 'Turn LEFT. Walk EAST on Victory Blvd, keeping the fire behind you.',
+        fromIndex: 3,
       },
       {
-        road: 'Hidden Hills north gate',
-        direction: 'SOUTH',
-        arrow: '↓',
-        text: 'The pickup point is just ahead at the gate — responders meet you there.',
-        fromIndex: 7,
+        road: 'Victory Blvd',
+        direction: 'EAST',
+        arrow: '→',
+        text: 'The park safe zone is just ahead.',
+        fromIndex: 6,
       },
     ],
   },
   {
-    id: 'southwest-calabasas',
-    destination: CALABASAS_STAGING,
-    allowedModes: ['car', 'bike', 'foot'],
-    path: SOUTHWEST_PATH,
-    summary:
-      'SOUTH-WEST along E Las Virgenes Canyon Rd to the canyon junction, then SOUTH on Las Virgenes Canyon Rd toward Calabasas',
+    id: 'foot-vanowen-north',
+    destination: VANOWEN_STAGING,
+    allowedModes: ['foot'],
+    path: NORTH_PATH,
+    summary: 'NORTH to Vanowen St, then EAST to the staging point',
     steps: [
       {
-        road: 'E Las Virgenes Canyon Rd',
-        direction: 'SOUTH-WEST',
-        arrow: '↙',
-        text: 'Head SOUTH-WEST along E Las Virgenes Canyon Rd, staying south of the drainage — keep moving, do not stop in the canyon bottom.',
+        road: 'Your street',
+        direction: 'NORTH',
+        arrow: '↑',
+        text: 'Head NORTH to Vanowen St.',
         fromIndex: 0,
       },
       {
-        road: 'Las Virgenes Canyon Rd',
-        direction: 'SOUTH',
-        arrow: '↓',
-        text: 'At the canyon junction turn LEFT and go SOUTH on Las Virgenes Canyon Rd.',
-        fromIndex: 8,
+        road: 'Vanowen St',
+        direction: 'EAST',
+        arrow: '→',
+        text: 'Go EAST on Vanowen St, away from the fire.',
+        fromIndex: 2,
       },
       {
-        road: 'Las Virgenes Rd',
-        direction: 'SOUTH',
-        arrow: '↓',
-        text: 'Through the trailhead gate, continue SOUTH toward Las Virgenes Rd, Calabasas — the staging area is just ahead.',
-        fromIndex: 11,
+        road: 'Vanowen St',
+        direction: 'EAST',
+        arrow: '→',
+        text: 'The staging point is just ahead.',
+        fromIndex: 6,
       },
     ],
   },
